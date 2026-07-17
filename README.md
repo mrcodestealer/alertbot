@@ -96,45 +96,48 @@ land in that chat.
 
 ---
 
-## 3. Deploy to a server + systemd service
+## 3. Deploy to a server + systemd service (runs as root from /root/alertbot)
 
 ```bash
-# on the server, as root/sudo
-sudo useradd --system --create-home --home-dir /home/alertbot alertbot
-sudo mkdir -p /opt/alertbot
-sudo chown alertbot:alertbot /opt/alertbot
+# on the server, as root
 
 # get the code (see the git section for auth options)
-sudo -u alertbot git clone https://github.com/mrcodestealer/alertbot.git /opt/alertbot
-cd /opt/alertbot
+git clone https://github.com/mrcodestealer/alertbot.git /root/alertbot
+cd /root/alertbot
 
 # python env
-sudo -u alertbot python3 -m venv .venv
-sudo -u alertbot /opt/alertbot/.venv/bin/pip install -r requirements.txt
+python3 -m venv .venv
+.venv/bin/pip install -r requirements.txt
 
 # install the headless browser + its OS libraries (Playwright)
-sudo -u alertbot HOME=/home/alertbot /opt/alertbot/.venv/bin/playwright install chromium
-sudo /opt/alertbot/.venv/bin/playwright install-deps   # apt packages Chromium needs
+HOME=/root .venv/bin/playwright install chromium
+.venv/bin/playwright install-deps      # apt/yum packages Chromium needs
 
 # create the .env (paste the one provided) and lock it down
-sudo -u alertbot nano /opt/alertbot/.env
-sudo chmod 600 /opt/alertbot/.env
+nano /root/alertbot/.env
+chmod 600 /root/alertbot/.env
 ```
 
 Install and start the service:
 
 ```bash
-sudo cp /opt/alertbot/alertbot.service /etc/systemd/system/alertbot.service
-# edit User/paths in the unit if you didn't use alertbot:/opt/alertbot
-sudo systemctl daemon-reload
-sudo systemctl enable --now alertbot
+cp /root/alertbot/alertbot.service /etc/systemd/system/alertbot.service
+systemctl daemon-reload
+systemctl enable --now alertbot
 
 # operate it
-sudo systemctl status alertbot
-sudo systemctl restart alertbot
-sudo systemctl stop alertbot
-journalctl -u alertbot -f            # live logs
+systemctl status alertbot
+systemctl restart alertbot
+systemctl stop alertbot
+journalctl -u alertbot -f             # live logs
 ```
+
+> Running as root is the simplest path. For a hardened setup, create a dedicated
+> user and deploy to `/opt/alertbot` instead: `useradd --system --create-home
+> --home-dir /home/alertbot alertbot`, `mkdir -p /opt/alertbot && chown
+> alertbot:alertbot /opt/alertbot`, run the venv/clone/commands as
+> `sudo -u alertbot …`, and change `User`/`WorkingDirectory`/`HOME`/paths in
+> `alertbot.service` accordingly.
 
 If `ENABLE_SCREENSHOT=true` and Chromium can't launch on a minimal server, run
 `playwright install-deps` (installs the required apt libraries), or set
@@ -173,10 +176,10 @@ pushed**. The server keeps its own `.env`.
   ```
 - **SSH (recommended for the server):**
   ```bash
-  sudo -u alertbot ssh-keygen -t ed25519 -C "alertbot-server"     # press enter through prompts
-  sudo -u alertbot cat /home/alertbot/.ssh/id_ed25519.pub          # add this to GitHub → Deploy keys (Allow write)
+  ssh-keygen -t ed25519 -C "alertbot-server"     # press enter through prompts
+  cat /root/.ssh/id_ed25519.pub                   # add this to GitHub → Deploy keys (Allow write)
   # then use the SSH remote:
-  sudo -u alertbot git -C /opt/alertbot remote set-url origin git@github.com:mrcodestealer/alertbot.git
+  git -C /root/alertbot remote set-url origin git@github.com:mrcodestealer/alertbot.git
   ```
 
 ### Daily workflow
@@ -192,10 +195,10 @@ git push
 
 **Server — pull the update and restart:**
 ```bash
-cd /opt/alertbot
-sudo -u alertbot git pull
-sudo -u alertbot /opt/alertbot/.venv/bin/pip install -r requirements.txt   # only if deps changed
-sudo systemctl restart alertbot
+cd /root/alertbot
+git pull
+.venv/bin/pip install -r requirements.txt   # only if deps changed
+systemctl restart alertbot
 ```
 
 > Edit code **locally**, push, then `git pull` on the server. Avoid editing on the
@@ -205,7 +208,7 @@ sudo systemctl restart alertbot
 
 One-liner you can rerun on the server to deploy the latest:
 ```bash
-cd /opt/alertbot && sudo -u alertbot git pull && sudo systemctl restart alertbot && journalctl -u alertbot -f
+cd /root/alertbot && git pull && systemctl restart alertbot && journalctl -u alertbot -f
 ```
 
 ---
