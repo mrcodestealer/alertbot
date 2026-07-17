@@ -1,0 +1,43 @@
+# systemd unit for AlertBot
+# Install:  sudo cp alertbot.service /etc/systemd/system/alertbot.service
+# Edit User/paths below to match your server, then:
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now alertbot
+#   sudo systemctl status alertbot
+#   journalctl -u alertbot -f          # live logs
+
+[Unit]
+Description=AlertBot - MonitorFlow to Lark alert bot
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+
+# --- CHANGE THESE to match your server ---
+User=alertbot
+Group=alertbot
+WorkingDirectory=/opt/alertbot
+
+# .env holds all secrets/config; systemd loads it into the environment.
+EnvironmentFile=/opt/alertbot/.env
+
+# Playwright needs a writable HOME for its browser cache.
+Environment=HOME=/home/alertbot
+# If you installed browsers to a shared path, point Playwright at it instead:
+# Environment=PLAYWRIGHT_BROWSERS_PATH=/opt/alertbot/.playwright
+
+# Run inside the project virtualenv.
+ExecStart=/opt/alertbot/.venv/bin/python /opt/alertbot/main.py
+
+Restart=always
+RestartSec=5
+# Give the process time to flush state on stop.
+TimeoutStopSec=20
+
+# --- Light hardening (optional; loosen if it breaks Playwright) ---
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

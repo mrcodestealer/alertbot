@@ -1,0 +1,22 @@
+# Secrets — NEVER commit these
+.env
+
+# Runtime state / artifacts
+state.json
+state.tmp
+screenshots/
+*.log
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+env/
+.Python
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
