@@ -91,8 +91,8 @@ class MonitorClient:
         *,
         severity: str | None = None,
         status: str | None = None,
-        page_size: int = 200,
-        max_pages: int = 25,
+        page_size: int = 50,
+        max_pages: int = 40,
     ) -> list[dict[str, Any]]:
         """Fetch every matching alert, following pagination (capped at max_pages
         so an alert storm can't loop forever)."""

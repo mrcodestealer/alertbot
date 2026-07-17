@@ -53,6 +53,10 @@ class Config:
     # --- Watcher behaviour ---
     # Severity to watch: "critical", "warning", "info", or "all".
     watch_severity: str = os.getenv("WATCH_SEVERITY", "critical").strip().lower()
+    # Page size used when querying the alerts API (matches the dashboard view:
+    # /alerts?page=1&page_size=50&severity=critical). The client still paginates
+    # to cover everything, but requests this many per page.
+    monitor_page_size: int = _int("MONITOR_PAGE_SIZE", 50)
     poll_interval_seconds: int = _int("POLL_INTERVAL_SECONDS", 60)
     # On first startup, announce the alerts that are already firing?
     announce_backlog_on_start: bool = _bool("ANNOUNCE_BACKLOG_ON_START", False)

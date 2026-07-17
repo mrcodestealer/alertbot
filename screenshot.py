@@ -78,7 +78,7 @@ def _login(page) -> None:
 
 def _open_detail(page, alert_id: int | str) -> None:
     sev = CONFIG.severity_filter
-    url = f"{CONFIG.monitor_base_url}/alerts?page=1&page_size=100"
+    url = f"{CONFIG.monitor_base_url}/alerts?page=1&page_size={CONFIG.monitor_page_size}"
     if sev:
         url += f"&severity={sev}"
     page.goto(url, wait_until="networkidle")

@@ -51,7 +51,9 @@ class Watcher(threading.Thread):
 
     # ------------------------------------------------------------------ tick
     def _tick(self) -> None:
-        firing = self.monitor.list_all_alerts(severity=CONFIG.severity_filter, status="firing")
+        firing = self.monitor.list_all_alerts(
+            severity=CONFIG.severity_filter, status="firing", page_size=CONFIG.monitor_page_size
+        )
         firing_ids = {int(a["id"]) for a in firing if a.get("id") is not None}
         max_id = max(firing_ids) if firing_ids else self.state.last_id
 

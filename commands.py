@@ -69,7 +69,9 @@ class CommandHandler:
         * resolved: alerts the watcher has recorded as recovered, within the
           retention window.
         """
-        firing = self.monitor.list_all_alerts(severity=CONFIG.severity_filter, status="firing")
+        firing = self.monitor.list_all_alerts(
+            severity=CONFIG.severity_filter, status="firing", page_size=CONFIG.monitor_page_size
+        )
         firing_sorted = sorted(firing, key=lambda a: int(a.get("id", 0)), reverse=True)
         resolved = sorted(
             self.state.resolved(), key=lambda r: r.get("resolved_at") or 0, reverse=True
