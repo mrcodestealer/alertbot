@@ -12,8 +12,11 @@ from pathlib import Path
 from dotenv import load_dotenv
 
 # Load .env sitting next to this file (works no matter the CWD systemd uses).
+# override=True makes python-dotenv authoritative over values systemd may have
+# already injected via EnvironmentFile — systemd keeps inline "# comments" in
+# values, python-dotenv strips them, so this guarantees consistent parsing.
 BASE_DIR = Path(__file__).resolve().parent
-load_dotenv(BASE_DIR / ".env")
+load_dotenv(BASE_DIR / ".env", override=True)
 
 
 def _bool(name: str, default: bool) -> bool:
@@ -83,7 +86,13 @@ class Config:
     # Comma-separated Lark open_ids allowed to deploy. Empty = any DM sender
     # (a warning is logged). Get your open_id by DMing the bot "/whoami".
     deploy_admin_ids: list[str] = field(
-        default_factory=lambda: [s.strip() for s in os.getenv("DEPLOY_ADMIN_IDS", "").split(",") if s.strip()]
+        # Split on ',', drop any accidental inline "# comment", and trim whitespace
+        # (open_ids never contain '#', so this is safe and forgiving).
+        default_factory=lambda: [
+            tok
+            for s in os.getenv("DEPLOY_ADMIN_IDS", "").split(",")
+            if (tok := s.split("#", 1)[0].strip())
+        ]
     )
 
     # --- Misc ---

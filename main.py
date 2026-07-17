@@ -173,9 +173,19 @@ def main() -> int:
 
     Watcher(monitor, lark_client, state).start()
 
+    # Register no-op handlers for events Lark delivers but we don't act on, so
+    # lark-oapi stops logging "processor not found" ERRORs for them.
+    def _ignore_event(_data) -> None:  # noqa: ANN001
+        pass
+
     event_handler = (
         lark.EventDispatcherHandler.builder("", "")
         .register_p2_im_message_receive_v1(on_message)
+        .register_p2_im_message_message_read_v1(_ignore_event)
+        .register_p2_im_chat_access_event_bot_p2p_chat_entered_v1(_ignore_event)
+        # Legacy v1.0-schema events some tenants still deliver:
+        .register_p1_customized_event("message", _ignore_event)
+        .register_p1_customized_event("message_read", _ignore_event)
         .build()
     )
 
