@@ -127,8 +127,13 @@ def _handle_deploy_request(message_id: str, sender: str | None) -> None:
         lark_client.reply_text(message_id, "Deploy is disabled. Set DEPLOY_ENABLED=true in .env to enable it.")
         return
     if CONFIG.deploy_admin_ids and sender not in CONFIG.deploy_admin_ids:
-        log.warning("Unauthorized deploy attempt by %s", sender)
-        lark_client.reply_text(message_id, "⛔ You are not authorized to deploy.")
+        log.warning("Unauthorized deploy by %r; configured DEPLOY_ADMIN_IDS=%r", sender, CONFIG.deploy_admin_ids)
+        lark_client.reply_text(
+            message_id,
+            f"⛔ Not authorized.\nYour open_id: {sender}\n"
+            f"Add it to DEPLOY_ADMIN_IDS in .env, then restart the bot "
+            f"(systemctl restart alertbot).",
+        )
         return
     if not CONFIG.deploy_admin_ids:
         log.warning("DEPLOY_ADMIN_IDS is empty — allowing deploy from DM sender %s. Set an allowlist!", sender)
@@ -153,6 +158,12 @@ def main() -> int:
             sys.exit(0)
 
     signal.signal(signal.SIGTERM, _graceful_shutdown)
+
+    # Log the deploy config at startup so it's easy to confirm what's loaded.
+    log.info(
+        "Deploy config: enabled=%s service=%s dir=%s admins=%s",
+        CONFIG.deploy_enabled, CONFIG.deploy_service, CONFIG.deploy_git_dir, CONFIG.deploy_admin_ids,
+    )
 
     # Warm up the dashboard session (non-fatal; watcher retries).
     try:
