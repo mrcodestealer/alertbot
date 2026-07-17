@@ -81,26 +81,58 @@ def on_message(data: P2ImMessageReceiveV1) -> None:
         tokens = text.lower().split()  # whole-word match so "/checkout" != "/check"
         chat_type = msg.chat_type
         mentioned = bool(msg.mentions)
+        sender = _sender_open_id(data)
 
-        # Log chat_id so the operator can copy it into LARK_ALERT_CHAT_ID.
-        log.info("Message in chat_id=%s type=%s text=%r", msg.chat_id, chat_type, text)
+        # Log chat_id/sender so the operator can fill LARK_ALERT_CHAT_ID / DEPLOY_ADMIN_IDS.
+        log.info("Message chat_id=%s type=%s sender=%s text=%r", msg.chat_id, chat_type, sender, text)
 
         # Helper: reply with the current chat_id.
         if "/chatid" in tokens:
             lark_client.reply_text(message_id, f"chat_id: {msg.chat_id}")
             return
 
+        # Helper: reply with the sender's open_id (to fill DEPLOY_ADMIN_IDS).
+        if "/whoami" in tokens:
+            lark_client.reply_text(message_id, f"your open_id: {sender}")
+            return
+
+        # Self-deploy — DM only, opt-in, authorized users only. Never executes
+        # text from the message; runs a fixed git-pull + restart.
+        if chat_type == "p2p" and _is_deploy_command(tokens, text):
+            _handle_deploy_request(message_id, sender)
+            return
+
         # /check must be directed at the bot: either a DM, or the bot @-mentioned.
         if CONFIG.check_command in tokens and (chat_type == "p2p" or mentioned):
-            sender = None
-            try:
-                sender = data.event.sender.sender_id.open_id
-            except AttributeError:
-                pass
             log.info("/check triggered by %s in %s", sender, msg.chat_id)
             _executor.submit(commands.handle_check, message_id, sender)
     except Exception:
         log.exception("Failed handling incoming message")
+
+
+def _sender_open_id(data: P2ImMessageReceiveV1) -> str | None:
+    try:
+        return data.event.sender.sender_id.open_id
+    except AttributeError:
+        return None
+
+
+def _is_deploy_command(tokens: list[str], text: str) -> bool:
+    # "/deploy" as a whole token, or the natural phrase "git pull".
+    return "/deploy" in tokens or "git pull" in text.lower()
+
+
+def _handle_deploy_request(message_id: str, sender: str | None) -> None:
+    if not CONFIG.deploy_enabled:
+        lark_client.reply_text(message_id, "Deploy is disabled. Set DEPLOY_ENABLED=true in .env to enable it.")
+        return
+    if CONFIG.deploy_admin_ids and sender not in CONFIG.deploy_admin_ids:
+        log.warning("Unauthorized deploy attempt by %s", sender)
+        lark_client.reply_text(message_id, "⛔ You are not authorized to deploy.")
+        return
+    if not CONFIG.deploy_admin_ids:
+        log.warning("DEPLOY_ADMIN_IDS is empty — allowing deploy from DM sender %s. Set an allowlist!", sender)
+    _executor.submit(commands.handle_deploy, message_id, sender)
 
 
 def main() -> int:

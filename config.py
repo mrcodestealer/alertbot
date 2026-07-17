@@ -73,6 +73,19 @@ class Config:
     reaction_error: str = os.getenv("REACTION_ERROR", "ERROR")
     check_command: str = os.getenv("CHECK_COMMAND", "/check").strip().lower()
 
+    # --- Self-deploy via DM (git pull + restart service) ---
+    # OFF by default: this executes shell commands on the server.
+    deploy_enabled: bool = _bool("DEPLOY_ENABLED", False)
+    deploy_branch: str = os.getenv("DEPLOY_BRANCH", "main")
+    deploy_service: str = os.getenv("DEPLOY_SERVICE", "alertbot")
+    # Directory the git pull runs in. Defaults to where the code lives.
+    deploy_git_dir: str = os.getenv("DEPLOY_GIT_DIR", str(BASE_DIR))
+    # Comma-separated Lark open_ids allowed to deploy. Empty = any DM sender
+    # (a warning is logged). Get your open_id by DMing the bot "/whoami".
+    deploy_admin_ids: list[str] = field(
+        default_factory=lambda: [s.strip() for s in os.getenv("DEPLOY_ADMIN_IDS", "").split(",") if s.strip()]
+    )
+
     # --- Misc ---
     log_level: str = os.getenv("LOG_LEVEL", "INFO").upper()
     state_file: Path = field(default_factory=lambda: BASE_DIR / os.getenv("STATE_FILE", "state.json"))

@@ -223,6 +223,18 @@ cd /root/alertbot && git pull && systemctl restart alertbot && journalctl -u ale
   **🔥 Still Firing** and **✅ Resolved** categories. In a direct chat you can just
   send `/check`.
 - **`/chatid`:** the bot replies with the current chat's `chat_id`.
+- **`/whoami`:** the bot replies with your Lark `open_id` (use it for `DEPLOY_ADMIN_IDS`).
+- **Self-deploy (DM only):** DM the bot `/deploy` — or the natural phrase
+  `git pull origin main and restart` — and it runs `git pull origin <branch>` in
+  the project dir and, **only if that succeeds**, restarts the service via
+  `systemctl restart --no-block`. It reacts ⏳ → replies the git output → reacts
+  ✅/❌ → restarts (the bot reconnects a few seconds later).
+  - Requires `DEPLOY_ENABLED=true`. **Restrict it** with `DEPLOY_ADMIN_IDS`
+    (comma-separated open_ids from `/whoami`); if empty, any DM sender can deploy
+    and a warning is logged.
+  - It runs a **fixed** command set — it never executes text from your message,
+    so there's no arbitrary shell injection.
+  - Only works in a direct message (p2p), never from a group.
 
 ---
 
