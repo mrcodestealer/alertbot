@@ -193,12 +193,18 @@ class Watcher(threading.Thread):
         log.info("Alert #%s resolved", alert_id)
         firing_msg_id = self.state.get_firing_message_id(alert_id)
         self.state.mark_resolved(alert_id, detail)
-        if not (CONFIG.notify_on_resolve and CONFIG.lark_alert_chat_id):
-            return
-        card = cards.resolve_card(detail)
-        if firing_msg_id:
-            # Thread the recovery card under the original firing message.
-            if self.lark.reply_card(firing_msg_id, card, in_thread=True):
-                return
-            log.warning("Threaded resolve reply failed for #%s; sending standalone", alert_id)
-        self.lark.send_card(CONFIG.lark_alert_chat_id, card)
+
+        if CONFIG.notify_on_resolve and CONFIG.lark_alert_chat_id:
+            card = cards.resolve_card(detail)
+            sent = False
+            if firing_msg_id:
+                # Thread the recovery card under the original firing message.
+                sent = self.lark.reply_card(firing_msg_id, card, in_thread=True)
+                if not sent:
+                    log.warning("Threaded resolve reply failed for #%s; sending standalone", alert_id)
+            if not sent:
+                self.lark.send_card(CONFIG.lark_alert_chat_id, card)
+
+        # Once resolved (and its card is posted), optionally drop it from state.
+        if CONFIG.clear_resolved:
+            self.state.forget(alert_id)

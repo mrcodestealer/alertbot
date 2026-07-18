@@ -119,6 +119,11 @@ class State:
         with self._lock:
             return [r for r in self.watched.values() if r.get("status") == "resolved"]
 
+    def forget(self, alert_id: int | str) -> None:
+        """Remove an alert from state entirely."""
+        with self._lock:
+            self.watched.pop(str(alert_id), None)
+
     def prune(self, retention_hours: int) -> None:
         """Drop resolved alerts older than the retention window."""
         cutoff = time.time() - retention_hours * 3600
