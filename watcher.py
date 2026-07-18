@@ -77,8 +77,11 @@ class Watcher(threading.Thread):
         )
         first_failure_id: int | None = None
         for alert in new_alerts:
-            if self._announce_new(alert):
+            delivered, msg_id = self._announce_new(alert)
+            if delivered:
                 self.state.track(alert, announced=True)
+                if msg_id:
+                    self.state.set_firing_message_id(alert["id"], msg_id)
                 self.state.save()  # persist incrementally: a restart can't re-announce
             elif first_failure_id is None:
                 first_failure_id = int(alert["id"])
@@ -110,24 +113,26 @@ class Watcher(threading.Thread):
         self.state.save()
 
     # ------------------------------------------------------------- announce
-    def _announce_new(self, alert: dict) -> bool:
-        """Announce a new alert. Returns True when it was delivered (or when no
-        alert chat is configured, so there is nothing to deliver); False on a
-        delivery failure so the caller leaves it untracked for a retry."""
+    def _announce_new(self, alert: dict) -> tuple[bool, str | None]:
+        """Announce a new alert. Returns (delivered, message_id):
+        (True, msg_id) on a successful send, (True, None) when no alert chat is
+        configured (nothing to deliver), (False, None) on a delivery failure so
+        the caller leaves it untracked for a retry."""
         aid = alert.get("id")
         log.info("New alert #%s: %s", aid, alert.get("alert_rule"))
         if not CONFIG.lark_alert_chat_id:
-            return True
+            return True, None
         try:
             image_key = None
             shot = capture_alert_detail(aid)
             if shot:
                 image_key = self.lark.upload_image(shot)
             card = cards.new_alert_card(alert, image_key=image_key)
-            return self.lark.send_card(CONFIG.lark_alert_chat_id, card)
+            msg_id = self.lark.send_card(CONFIG.lark_alert_chat_id, card)
+            return (msg_id is not None), msg_id
         except Exception:
             log.exception("Failed to announce alert #%s", aid)
-            return False
+            return False, None
 
     def _handle_possible_resolution(self, alert_id) -> None:
         try:
@@ -140,6 +145,14 @@ class Watcher(threading.Thread):
             self.state.track(detail, announced=True)
             return
         log.info("Alert #%s resolved", alert_id)
+        firing_msg_id = self.state.get_firing_message_id(alert_id)
         self.state.mark_resolved(alert_id, detail)
-        if CONFIG.notify_on_resolve and CONFIG.lark_alert_chat_id:
-            self.lark.send_card(CONFIG.lark_alert_chat_id, cards.resolve_card(detail))
+        if not (CONFIG.notify_on_resolve and CONFIG.lark_alert_chat_id):
+            return
+        card = cards.resolve_card(detail)
+        if firing_msg_id:
+            # Thread the recovery card under the original firing message.
+            if self.lark.reply_card(firing_msg_id, card, in_thread=True):
+                return
+            log.warning("Threaded resolve reply failed for #%s; sending standalone", alert_id)
+        self.lark.send_card(CONFIG.lark_alert_chat_id, card)

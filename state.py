@@ -89,6 +89,19 @@ class State:
         with self._lock:
             return str(alert_id) in self.watched
 
+    def set_firing_message_id(self, alert_id: int | str, message_id: str) -> None:
+        """Remember the Lark message_id of an alert's firing card, so the resolve
+        card can be threaded under it."""
+        with self._lock:
+            rec = self.watched.get(str(alert_id))
+            if rec is not None:
+                rec["firing_message_id"] = message_id
+
+    def get_firing_message_id(self, alert_id: int | str) -> str | None:
+        with self._lock:
+            rec = self.watched.get(str(alert_id))
+            return rec.get("firing_message_id") if rec else None
+
     def firing(self) -> list[dict[str, Any]]:
         with self._lock:
             return [r for r in self.watched.values() if r.get("status") == "firing"]

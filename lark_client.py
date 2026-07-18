@@ -94,7 +94,9 @@ class LarkClient:
         return True
 
     # ---------------------------------------------------------- proactive
-    def send_card(self, chat_id: str, card: dict[str, Any]) -> bool:
+    def send_card(self, chat_id: str, card: dict[str, Any]) -> str | None:
+        """Send a card to a chat. Returns the sent message_id (truthy) on
+        success, or None on failure."""
         req = (
             CreateMessageRequest.builder()
             .receive_id_type("chat_id")
@@ -110,8 +112,8 @@ class LarkClient:
         resp = self._client.im.v1.message.create(req)
         if not resp.success():
             log.error("send_card failed: code=%s msg=%s log_id=%s", resp.code, resp.msg, resp.get_log_id())
-            return False
-        return True
+            return None
+        return resp.data.message_id
 
     def reply_text(self, message_id: str, text: str, *, in_thread: bool = False) -> bool:
         req = (
