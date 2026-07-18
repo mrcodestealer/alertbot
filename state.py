@@ -102,6 +102,15 @@ class State:
             rec = self.watched.get(str(alert_id))
             return rec.get("firing_message_id") if rec else None
 
+    def add_reminded(self, alert_id: int | str, minutes: int) -> None:
+        """Record that the N-minute 'still firing' reminder was sent for an alert."""
+        with self._lock:
+            rec = self.watched.get(str(alert_id))
+            if rec is not None:
+                sent = rec.setdefault("reminded", [])
+                if minutes not in sent:
+                    sent.append(minutes)
+
     def firing(self) -> list[dict[str, Any]]:
         with self._lock:
             return [r for r in self.watched.values() if r.get("status") == "firing"]

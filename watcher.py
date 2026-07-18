@@ -13,6 +13,7 @@ from __future__ import annotations
 import logging
 import threading
 import time
+from datetime import datetime, timezone
 
 import cards
 from config import CONFIG
@@ -22,6 +23,20 @@ from screenshot import capture_alert_detail
 from state import State
 
 log = logging.getLogger("alertbot.watcher")
+
+
+def _parse_dt(value) -> datetime | None:
+    """Parse an ISO-8601 timestamp (e.g. '2026-07-18T02:02:50.955347+08:00')
+    into an aware UTC datetime; None if it can't be parsed."""
+    if not value:
+        return None
+    try:
+        dt = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    except (ValueError, TypeError):
+        return None
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(timezone.utc)
 
 
 class Watcher(threading.Thread):
@@ -108,6 +123,9 @@ class Watcher(threading.Thread):
             except Exception:
                 log.exception("Resolution check failed for #%s", aid)
 
+        # 2b) FYI reminders for alerts still firing past the configured thresholds
+        self._check_firing_reminders()
+
         # 3) prune + persist
         self.state.prune(CONFIG.state_retention_hours)
         self.state.save()
@@ -133,6 +151,34 @@ class Watcher(threading.Thread):
         except Exception:
             log.exception("Failed to announce alert #%s", aid)
             return False, None
+
+    # ------------------------------------------------------ firing reminders
+    def _check_firing_reminders(self) -> None:
+        """For each still-firing alert that has an announced firing card, post an
+        FYI reply in its thread once it crosses each configured duration threshold."""
+        if not CONFIG.firing_reminder_minutes or not CONFIG.lark_alert_chat_id:
+            return
+        now = datetime.now(timezone.utc)
+        for rec in self.state.firing():
+            msg_id = rec.get("firing_message_id")
+            if not msg_id:
+                continue  # never announced with a card; nothing to thread under
+            created = _parse_dt(rec.get("created_at"))
+            if created is None:
+                continue
+            age_min = (now - created).total_seconds() / 60.0
+            already = set(rec.get("reminded", []))
+            for threshold in CONFIG.firing_reminder_minutes:
+                if threshold in already or age_min < threshold:
+                    continue
+                aid = rec.get("id")
+                log.info("Firing reminder (%dm) for alert #%s (age %.1fm)", threshold, aid, age_min)
+                card = cards.firing_reminder_card(rec, threshold)
+                if self.lark.reply_card(msg_id, card, in_thread=True):
+                    self.state.add_reminded(aid, threshold)
+                    self.state.save()  # persist so a crash can't re-send the reminder
+                else:
+                    log.warning("Firing reminder reply failed for #%s (%dm)", aid, threshold)
 
     def _handle_possible_resolution(self, alert_id) -> None:
         try:

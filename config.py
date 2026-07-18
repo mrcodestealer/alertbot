@@ -33,6 +33,17 @@ def _int(name: str, default: int) -> int:
         return default
 
 
+def _int_list(name: str, default: str) -> list[int]:
+    """Parse a comma-separated list of positive ints (e.g. '15,30,60'),
+    tolerating inline '# comments' and whitespace. Empty = disabled."""
+    out: list[int] = []
+    for s in os.getenv(name, default).split(","):
+        tok = s.split("#", 1)[0].strip()
+        if tok.isdigit() and int(tok) > 0:
+            out.append(int(tok))
+    return sorted(set(out))
+
+
 @dataclass
 class Config:
     # --- Monitoring dashboard (MonitorFlow) ---
@@ -61,6 +72,9 @@ class Config:
     # to cover everything, but requests this many per page.
     monitor_page_size: int = _int("MONITOR_PAGE_SIZE", 50)
     poll_interval_seconds: int = _int("POLL_INTERVAL_SECONDS", 60)
+    # Post an FYI reminder in the alert's thread when it has been firing this long
+    # (minutes). Comma-separated for multiple, e.g. "15,30,60". Empty = off.
+    firing_reminder_minutes: list[int] = field(default_factory=lambda: _int_list("FIRING_REMINDER_MINUTES", "15"))
     # On first startup, announce the alerts that are already firing?
     announce_backlog_on_start: bool = _bool("ANNOUNCE_BACKLOG_ON_START", False)
     notify_on_resolve: bool = _bool("NOTIFY_ON_RESOLVE", True)

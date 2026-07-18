@@ -129,6 +129,30 @@ def resolve_card(alert: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def firing_reminder_card(alert: dict[str, Any], minutes: int) -> dict[str, Any]:
+    """Short FYI posted in an alert's thread when it's still firing after N minutes."""
+    title = alert.get("alert_rule") or alert.get("summary") or f"Alert #{alert.get('id')}"
+    return {
+        "config": {"wide_screen_mode": True},
+        "header": {
+            "title": {"tag": "plain_text", "content": f"⏰ FYI: still firing for {minutes} min"},
+            "template": "orange",
+        },
+        "elements": [
+            {
+                "tag": "div",
+                "text": {
+                    "tag": "lark_md",
+                    "content": (
+                        f"**{title}** (`#{alert.get('id')}`) has been **firing for ~{minutes} minutes** "
+                        f"and has not recovered yet.\n**Instance / 实例**\n{_clip(alert.get('instance'), 200)}"
+                    ),
+                },
+            }
+        ],
+    }
+
+
 def _alert_line(alert: dict[str, Any]) -> str:
     sev = _emoji(alert)
     aid = alert.get("id", "?")
