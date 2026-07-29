@@ -127,8 +127,14 @@ class CommandHandler:
         try:
             self._restart_service()
         except Exception as e:  # noqa: BLE001
+            # Note: if we're mid-restart our own process may be terminated here;
+            # that path is handled inside _restart_service (SIGTERM == success).
             log.exception("restart failed")
-            self.lark.reply_text(message_id, f"⚠️ Restart command failed: {e}")
+            self.lark.reply_text(
+                message_id,
+                f"⚠️ Restart request failed: {e}\n"
+                f"Run manually on the server: systemctl restart {CONFIG.deploy_service}",
+            )
 
     def _git_pull(self) -> tuple[int, str]:
         r = subprocess.run(
@@ -141,12 +147,42 @@ class CommandHandler:
         return r.returncode, out
 
     def _restart_service(self) -> None:
-        # `--no-block` enqueues the restart in systemd (PID 1) and returns, so the
-        # job survives this process being killed during its own restart.
-        subprocess.run(
+        """Ask systemd to restart this service.
+
+        Restarting ourselves is inherently racy: `systemctl restart` makes systemd
+        SIGTERM the whole service cgroup, which includes the `systemctl` child we
+        just spawned. So we:
+          1. prefer `systemd-run`, which hands the job to PID 1 in its own
+             transient unit — outside our cgroup, so it can't be killed with us;
+          2. fall back to plain `systemctl restart --no-block`;
+          3. treat "killed by SIGTERM" as SUCCESS — that signal *is* our own
+             restart arriving, not a failure.
+        """
+        cmds = [
+            ["systemd-run", "--collect", "--no-block", "--unit",
+             f"alertbot-redeploy-{CONFIG.deploy_service}",
+             "systemctl", "restart", CONFIG.deploy_service],
             ["systemctl", "restart", "--no-block", CONFIG.deploy_service],
-            capture_output=True,
-            text=True,
-            timeout=30,
-            check=True,
-        )
+        ]
+        last_err = None
+        for cmd in cmds:
+            try:
+                r = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+            except FileNotFoundError as e:
+                last_err = e
+                continue  # systemd-run not present; try the fallback
+            except subprocess.TimeoutExpired as e:
+                last_err = e
+                continue
+            if r.returncode == 0:
+                return
+            # Negative return code == killed by a signal. -15 (SIGTERM) means our
+            # own restart already reached us, i.e. the request succeeded.
+            if r.returncode == -15:
+                log.info("systemctl was SIGTERMed by our own restart — treating as success")
+                return
+            last_err = RuntimeError(
+                f"{' '.join(cmd)} -> rc={r.returncode} {(r.stdout + r.stderr).strip()[:300]}"
+            )
+        if last_err:
+            raise last_err if isinstance(last_err, Exception) else RuntimeError(str(last_err))
