@@ -223,7 +223,10 @@ cd /root/alertbot && git pull && systemctl restart alertbot && journalctl -u ale
   **🔥 Still Firing** and **✅ Resolved** categories. In a direct chat you can just
   send `/check`.
 - **`/chatid`:** the bot replies with the current chat's `chat_id`.
-- **`/whoami`:** the bot replies with your Lark `open_id` (use it for `DEPLOY_ADMIN_IDS`).
+- **`/whoami`** (also `whoami` or the phrase **`who am i`**): the bot replies with
+  **your** Lark `open_id` — the id of whoever sent the message. Use it to fill
+  `DEPLOY_ADMIN_IDS`. In a group you must @-mention the bot (`@AlertBot who am i`);
+  in a DM just send it.
 - **Self-deploy (DM only):** DM the bot `/deploy` — or the natural phrase
   `git pull origin main and restart` — and it runs `git pull origin <branch>` in
   the project dir and, **only if that succeeds**, restarts the service via

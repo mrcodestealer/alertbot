@@ -92,8 +92,13 @@ def on_message(data: P2ImMessageReceiveV1) -> None:
             return
 
         # Helper: reply with the sender's open_id (to fill DEPLOY_ADMIN_IDS).
-        if "/whoami" in tokens:
-            lark_client.reply_text(message_id, f"your open_id: {sender}")
+        # Works for "/whoami", "whoami", or the natural phrase "who am i", when
+        # it's a DM or the bot was @-mentioned.
+        if _is_whoami(tokens, text) and (chat_type == "p2p" or mentioned):
+            if sender:
+                lark_client.reply_text(message_id, f"Your open_id:\n{sender}")
+            else:
+                lark_client.reply_text(message_id, "Couldn't read your open_id from this message.")
             return
 
         # Self-deploy — DM only, opt-in, authorized users only. Never executes
@@ -115,6 +120,13 @@ def _sender_open_id(data: P2ImMessageReceiveV1) -> str | None:
         return data.event.sender.sender_id.open_id
     except AttributeError:
         return None
+
+
+def _is_whoami(tokens: list[str], text: str) -> bool:
+    # "/whoami" / "whoami" as a whole token, or the natural phrase "who am i".
+    if "/whoami" in tokens or "whoami" in tokens:
+        return True
+    return "who am i" in " ".join(text.lower().split())
 
 
 def _is_deploy_command(tokens: list[str], text: str) -> bool:
