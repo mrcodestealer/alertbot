@@ -14,6 +14,7 @@ proactive alert push or a recovery card.
 from __future__ import annotations
 
 import logging
+import re
 import subprocess
 
 import cards
@@ -23,6 +24,41 @@ from monitor_client import MonitorClient
 from state import State
 
 log = logging.getLogger("alertbot.commands")
+
+# --- log redaction -----------------------------------------------------------
+# Journal lines can contain credentials (the Lark ws URL carries access_key and
+# ticket). Never forward those to a chat.
+_SECRET_QS_RE = re.compile(
+    r"((?:access_key|ticket|token|secret|password|passwd|pwd|authorization|api_key)"
+    r"\s*[=:]\s*)([^&\s\"',]+)",
+    re.IGNORECASE,
+)
+_JWT_RE = re.compile(r"\beyJ[A-Za-z0-9_\-]{8,}\.[A-Za-z0-9_\-]+\.[A-Za-z0-9_\-]+")
+
+
+def redact(text: str) -> str:
+    """Mask credentials that may appear in log output."""
+    if not text:
+        return text
+    text = _SECRET_QS_RE.sub(lambda m: f"{m.group(1)}***REDACTED***", text)
+    text = _JWT_RE.sub("***JWT-REDACTED***", text)
+    # Also mask the exact configured secrets, wherever they appear.
+    for secret in (CONFIG.lark_app_secret, CONFIG.monitor_password, CONFIG.lark_verification_token):
+        if secret and len(secret) >= 6:
+            text = text.replace(secret, "***REDACTED***")
+    return text
+
+
+def _build_matcher(pattern: str):
+    """Case-insensitive grep-like matcher. Tries regex; falls back to a literal
+    substring match if the pattern isn't valid regex."""
+    pattern = pattern[:200]
+    try:
+        rx = re.compile(pattern, re.IGNORECASE)
+        return lambda line: rx.search(line) is not None
+    except re.error:
+        needle = pattern.lower()
+        return lambda line: needle in line.lower()
 
 
 class CommandHandler:
@@ -78,6 +114,67 @@ class CommandHandler:
             self.state.resolved(), key=lambda r: r.get("resolved_at") or 0, reverse=True
         )
         return firing_sorted, resolved
+
+    # ------------------------------------------------------------------ /log
+    def handle_log(self, message_id: str, lines: int, pattern: str | None,
+                   requested_by: str | None = None) -> None:
+        """Reply with the tail of `journalctl -u <service>`, optionally filtered.
+
+        The pattern is applied in Python (never passed to a shell), and output is
+        redacted before it leaves the server.
+        """
+        lines = max(1, min(lines, CONFIG.log_max_lines))
+        log.info("/log by %s (lines=%d pattern=%r)", requested_by, lines, pattern)
+        processing_id = self.lark.add_reaction(message_id, CONFIG.reaction_processing)
+        ok = False
+        try:
+            raw = self._journal(lines if not pattern else CONFIG.log_max_lines)
+            out_lines = raw.splitlines()
+
+            if pattern:
+                matcher = _build_matcher(pattern)
+                out_lines = [ln for ln in out_lines if matcher(ln)]
+                out_lines = out_lines[-lines:]  # keep the newest N matches
+
+            header = (
+                f"📜 journalctl -u {CONFIG.deploy_service} "
+                f"({len(out_lines)} line(s)"
+                + (f", filter={pattern!r}" if pattern else "")
+                + ")"
+            )
+            body = "\n".join(out_lines) if out_lines else "(no matching lines)"
+            body = redact(body)
+            # Keep the message well under Lark's limit; keep the newest content.
+            limit = 3000
+            if len(body) > limit:
+                body = "…(truncated)\n" + body[-limit:]
+            self.lark.reply_text(message_id, f"{header}\n```\n{body}\n```", in_thread=True)
+            ok = True
+        except Exception as e:  # noqa: BLE001
+            log.exception("/log failed")
+            self.lark.reply_text(message_id, f"⚠️ /log failed: {e}", in_thread=True)
+
+        try:
+            if processing_id:
+                self.lark.remove_reaction(message_id, processing_id)
+        except Exception:
+            log.exception("Failed to remove processing reaction")
+        try:
+            self.lark.add_reaction(message_id, CONFIG.reaction_done if ok else CONFIG.reaction_error)
+        except Exception:
+            log.exception("Failed to add final reaction")
+
+    def _journal(self, lines: int) -> str:
+        r = subprocess.run(
+            ["journalctl", "-u", CONFIG.deploy_service, "-n", str(lines),
+             "--no-pager", "--output", "short-iso"],
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        if r.returncode != 0:
+            raise RuntimeError((r.stderr or r.stdout).strip()[:300] or f"journalctl rc={r.returncode}")
+        return r.stdout
 
     # --------------------------------------------------------------- /deploy
     def handle_deploy(self, message_id: str, requested_by: str | None = None) -> None:

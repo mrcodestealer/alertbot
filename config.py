@@ -103,6 +103,12 @@ class Config:
     deploy_git_dir: str = os.getenv("DEPLOY_GIT_DIR", str(BASE_DIR))
     # Comma-separated Lark open_ids allowed to deploy. Empty = any DM sender
     # (a warning is logged). Get your open_id by DMing the bot "/whoami".
+    # --- /log command (read journalctl from chat) ---
+    log_command_enabled: bool = _bool("LOG_COMMAND_ENABLED", True)
+    log_default_lines: int = _int("LOG_DEFAULT_LINES", 40)
+    log_max_lines: int = _int("LOG_MAX_LINES", 300)
+    # Reuses DEPLOY_ADMIN_IDS as the authorized list (logs can be sensitive).
+
     deploy_admin_ids: list[str] = field(
         # Split on ',', drop any accidental inline "# comment", and trim whitespace
         # (open_ids never contain '#', so this is safe and forgiving).

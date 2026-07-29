@@ -101,6 +101,11 @@ def on_message(data: P2ImMessageReceiveV1) -> None:
                 lark_client.reply_text(message_id, "Couldn't read your open_id from this message.")
             return
 
+        # /log — read the service journal (admin-gated; logs can be sensitive).
+        if tokens and tokens[0] in ("/log", "/logs") and (chat_type == "p2p" or mentioned):
+            _handle_log_request(message_id, sender, text)
+            return
+
         # Self-deploy — DM only, opt-in, authorized users only. Never executes
         # text from the message; runs a fixed git-pull + restart.
         if chat_type == "p2p" and _is_deploy_command(tokens, text):
@@ -132,6 +137,42 @@ def _is_whoami(tokens: list[str], text: str) -> bool:
 def _is_deploy_command(tokens: list[str], text: str) -> bool:
     # "/deploy" as a whole token, or the natural phrase "git pull".
     return "/deploy" in tokens or "git pull" in text.lower()
+
+
+def _parse_log_args(text: str) -> tuple[int, str | None]:
+    """Parse '/log [lines] [pattern]' -> (lines, pattern).
+
+    Examples:
+      /log                -> (default, None)
+      /log 100            -> (100, None)
+      /log error          -> (default, 'error')
+      /log 100 error      -> (100, 'error')
+      /log 100 "pm2 restart" -> (100, 'pm2 restart')
+    """
+    parts = text.strip().split()
+    parts = parts[1:] if parts else []  # drop the "/log" token itself
+    lines = CONFIG.log_default_lines
+    if parts and parts[0].isdigit():
+        lines = int(parts[0])
+        parts = parts[1:]
+    pattern = " ".join(parts).strip().strip('"').strip("'") or None
+    return lines, pattern
+
+
+def _handle_log_request(message_id: str, sender: str | None, text: str) -> None:
+    if not CONFIG.log_command_enabled:
+        lark_client.reply_text(message_id, "/log is disabled (LOG_COMMAND_ENABLED=false).")
+        return
+    if CONFIG.deploy_admin_ids and sender not in CONFIG.deploy_admin_ids:
+        log.warning("Unauthorized /log by %r", sender)
+        lark_client.reply_text(
+            message_id,
+            f"⛔ Not authorized to read logs.\nYour open_id: {sender}\n"
+            f"Add it to DEPLOY_ADMIN_IDS in .env, then restart the bot.",
+        )
+        return
+    lines, pattern = _parse_log_args(text)
+    _executor.submit(commands.handle_log, message_id, lines, pattern, sender)
 
 
 def _handle_deploy_request(message_id: str, sender: str | None) -> None:

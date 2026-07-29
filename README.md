@@ -227,6 +227,22 @@ cd /root/alertbot && git pull && systemctl restart alertbot && journalctl -u ale
   **your** Lark `open_id` — the id of whoever sent the message. Use it to fill
   `DEPLOY_ADMIN_IDS`. In a group you must @-mention the bot (`@AlertBot who am i`);
   in a DM just send it.
+- **`/log` — read the service journal from chat** (like `journalctl`, with
+  grep-style filtering). Restricted to `DEPLOY_ADMIN_IDS`; works in a DM or when
+  the bot is @-mentioned.
+  | Command | Result |
+  |---|---|
+  | `/log` | last 40 lines |
+  | `/log 100` | last 100 lines |
+  | `/log error` | last 40 lines matching `error` |
+  | `/log 200 pm2 restart` | last 200 matching `pm2 restart` |
+  | `/log 100 "New alert"` | quoted phrases work too |
+
+  The filter is case-insensitive and accepts regex (e.g. `error|failed`), falling
+  back to a literal match if the pattern isn't valid regex. It is applied in
+  Python — **never** passed to a shell — so there's no command injection.
+  **Output is redacted**: `access_key`/`ticket`/`token`/`password` values, JWTs,
+  and your configured secrets are masked before anything is sent to chat.
 - **Self-deploy (DM only):** DM the bot `/deploy` — or the natural phrase
   `git pull origin main and restart` — and it runs `git pull origin <branch>` in
   the project dir and, **only if that succeeds**, restarts the service via
