@@ -245,6 +245,47 @@ class KnowledgeBuilder:
         self.docs = LarkDocsClient()
         self.llm = OllamaClient()
 
+    def _caption_images(self, doc: dict[str, Any]) -> tuple[str, dict[str, str]]:
+        """Replace [IMAGE:token] markers with descriptions from the vision model.
+
+        Captions are cached by image token in the KB, so unchanged screenshots are
+        never re-read. Returns (enriched_text, captions).
+        """
+        text = doc["text"]
+        tokens = doc["image_tokens"]
+        if not CONFIG.ollama_vision_model or not tokens:
+            return text, {}
+
+        cached: dict[str, str] = dict(self.kb._data.get("image_captions") or {})  # noqa: SLF001
+        vision = OllamaClient(model=CONFIG.ollama_vision_model)
+        todo = [t for t in tokens if t not in cached]
+        log.info("Captioning %d image(s) with %s (%d cached)",
+                 len(todo), CONFIG.ollama_vision_model, len(tokens) - len(todo))
+
+        for tok in todo:
+            data = self.docs.download_image(tok)
+            if not data:
+                cached[tok] = ""
+                continue
+            try:
+                caption = vision.chat_text(
+                    "You describe screenshots from an SRE alert runbook. Be brief and factual.",
+                    "Describe this screenshot in one or two sentences. If it shows an alert "
+                    "message, state the alert name and any threshold or instruction visible.",
+                    images=[data],
+                    timeout=180,
+                )
+                cached[tok] = " ".join(caption.split())[:400]
+                log.debug("caption %s -> %s", tok[:8], cached[tok][:80])
+            except Exception:
+                log.exception("Captioning failed for image %s", tok)
+                cached[tok] = ""
+
+        for tok, cap in cached.items():
+            text = text.replace(f"[IMAGE:{tok}]", f"[SCREENSHOT: {cap}]" if cap else "[SCREENSHOT]")
+        # Keep only captions for images still in the doc.
+        return text, {t: cached.get(t, "") for t in tokens}
+
     def refresh(self, *, force: bool = False) -> dict[str, Any]:
         """Returns a small status dict describing what happened."""
         if not CONFIG.kb_wiki_token:
@@ -258,10 +299,11 @@ class KnowledgeBuilder:
                 "entries": len(self.kb.entries), "title": doc["title"],
             }
 
-        log.info("SOP doc changed (or forced) — asking %s to extract %d chars…",
-                 self.llm.model, len(doc["text"]))
         started = time.time()
-        parsed = self.llm.chat_json(_SYSTEM_PROMPT, _USER_PROMPT.format(doc=doc["text"]))
+        doc_text, captions = self._caption_images(doc)
+        log.info("SOP doc changed (or forced) — asking %s to extract %d chars…",
+                 self.llm.model, len(doc_text))
+        parsed = self.llm.chat_json(_SYSTEM_PROMPT, _USER_PROMPT.format(doc=doc_text))
         entries = _clean_entries(parsed)
         if not entries:
             raise LLMError("model returned no usable entries")
@@ -278,8 +320,14 @@ class KnowledgeBuilder:
                 "image_count": len(doc["image_tokens"]),
                 "text_chars": len(doc["text"]),
             },
-            "global_rules": [str(r)[:300] for r in (parsed.get("global_rules") or [])][:20],
+            # parsed may legitimately be a bare list of entries, hence the guard.
+            "global_rules": [
+                str(r)[:300]
+                for r in ((parsed.get("global_rules") or []) if isinstance(parsed, dict) else [])
+            ][:20],
             "entries": entries,
+            # Cached so unchanged screenshots are never re-read by the vision model.
+            "image_captions": captions,
         }
         self.kb.replace(data)
         self.kb.save()

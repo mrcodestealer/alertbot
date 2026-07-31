@@ -116,7 +116,11 @@ class Config:
     # Optional vision model for reading the doc's screenshots. Blank = skip images
     # (set to a VL model, e.g. "qwen2.5vl:7b", to have them described).
     ollama_vision_model: str = os.getenv("OLLAMA_VISION_MODEL", "")
-    ollama_timeout_seconds: int = _int("OLLAMA_TIMEOUT_SECONDS", 600)
+    ollama_timeout_seconds: int = _int("OLLAMA_TIMEOUT_SECONDS", 1800)
+    # Ollama's default context is only 4k, which truncates the doc and can make
+    # the model return an EMPTY reply. Keep this comfortably above doc+output.
+    ollama_num_ctx: int = _int("OLLAMA_NUM_CTX", 32768)
+    ollama_num_predict: int = _int("OLLAMA_NUM_PREDICT", 8192)
     # Working-hours window used to pick which SOP guidance to show.
     work_start_hour: int = _int("WORK_START_HOUR", 9)
     work_end_hour: int = _int("WORK_END_HOUR", 18)

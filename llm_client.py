@@ -59,22 +59,46 @@ class OllamaClient:
             "messages": [{"role": "system", "content": system}, msg],
             "stream": False,
             "format": "json",
-            "options": {"temperature": 0},
+            # Ollama defaults to a 4k context, which silently truncates a long
+            # document and can leave the reply EMPTY. Set it explicitly. "think"
+            # is disabled so the token budget goes to the answer, not reasoning.
+            "think": False,
+            "options": {
+                "temperature": 0,
+                "num_ctx": CONFIG.ollama_num_ctx,
+                "num_predict": CONFIG.ollama_num_predict,
+            },
         }
-        try:
-            r = requests.post(
-                f"{self.base_url}/api/chat",
-                json=payload,
-                timeout=timeout or CONFIG.ollama_timeout_seconds,
-            )
-        except requests.RequestException as e:
-            raise LLMError(f"Ollama request failed ({self.base_url}): {e}") from e
-        if r.status_code != 200:
-            raise LLMError(f"Ollama HTTP {r.status_code}: {r.text[:300]}")
-        content = ((r.json().get("message") or {}).get("content") or "").strip()
+        data = self._post(payload, timeout)
+        content = ((data.get("message") or {}).get("content") or "").strip()
         if not content:
-            raise LLMError("Ollama returned an empty response")
+            reason = data.get("done_reason")
+            raise LLMError(
+                f"Ollama returned an empty response (done_reason={reason}, "
+                f"eval_count={data.get('eval_count')}). Try raising OLLAMA_NUM_CTX."
+            )
         return _parse_json(content)
+
+    def _post(self, payload: dict[str, Any], timeout: int | None) -> dict[str, Any]:
+        """POST to /api/chat, retrying without 'think' for older Ollama builds."""
+        for attempt in (1, 2):
+            try:
+                r = requests.post(
+                    f"{self.base_url}/api/chat",
+                    json=payload,
+                    timeout=timeout or CONFIG.ollama_timeout_seconds,
+                )
+            except requests.RequestException as e:
+                raise LLMError(f"Ollama request failed ({self.base_url}): {e}") from e
+            if r.status_code == 200:
+                return r.json()
+            # Older Ollama versions reject the unknown "think" field.
+            if attempt == 1 and "think" in payload and r.status_code in (400, 422):
+                log.warning("Ollama rejected 'think' (HTTP %s); retrying without it", r.status_code)
+                payload = {k: v for k, v in payload.items() if k != "think"}
+                continue
+            raise LLMError(f"Ollama HTTP {r.status_code}: {r.text[:300]}")
+        raise LLMError("Ollama request failed after retry")
 
     def chat_text(self, system: str, user: str, *, images: list[bytes] | None = None,
                   model: str | None = None, timeout: int | None = None) -> str:
@@ -85,18 +109,11 @@ class OllamaClient:
             "model": model or self.model,
             "messages": [{"role": "system", "content": system}, msg],
             "stream": False,
-            "options": {"temperature": 0},
+            "think": False,
+            "options": {"temperature": 0, "num_ctx": CONFIG.ollama_num_ctx},
         }
-        try:
-            r = requests.post(
-                f"{self.base_url}/api/chat",
-                json=payload,
-                timeout=timeout or CONFIG.ollama_timeout_seconds,
-            )
-            r.raise_for_status()
-        except requests.RequestException as e:
-            raise LLMError(f"Ollama request failed ({self.base_url}): {e}") from e
-        return _strip_think(((r.json().get("message") or {}).get("content") or "").strip())
+        data = self._post(payload, timeout)
+        return _strip_think(((data.get("message") or {}).get("content") or "").strip())
 
 
 def _strip_think(text: str) -> str:
