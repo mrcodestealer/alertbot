@@ -10,6 +10,7 @@ screenshots/
 # during a deploy.
 monitorflow.json
 monitorflow.tmp
+monitorflow.lock
 
 # Python
 __pycache__/

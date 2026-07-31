@@ -14,9 +14,11 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import re
 import threading
 import time
+from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
@@ -238,6 +240,58 @@ class KnowledgeBase:
         }
 
 
+# ----------------------------------------------------------------- build lock
+class BuildInProgress(RuntimeError):
+    """Another process is already rebuilding the knowledge base."""
+
+
+@contextmanager
+def build_lock(kb_path: Path, stale_seconds: int = 3600):
+    """Cross-process lock so the service's refresher and a manual `build_kb.py`
+    run can't rebuild at the same time — two concurrent loads of a 20GB+ model
+    will thrash or OOM the box."""
+    lock = kb_path.with_suffix(".lock")
+    fd = None
+    acquired = False
+    try:
+        try:
+            fd = os.open(str(lock), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+        except FileExistsError:
+            try:
+                age = time.time() - lock.stat().st_mtime
+            except OSError:
+                age = stale_seconds + 1  # vanished underneath us; treat as stale
+            if age <= stale_seconds:
+                holder = ""
+                try:
+                    holder = lock.read_text(encoding="utf-8").strip()
+                except OSError:
+                    pass
+                raise BuildInProgress(
+                    f"another build is in progress (lock held {int(age)}s by pid {holder or '?'})"
+                )
+            log.warning("Removing stale KB build lock (%ds old)", int(age))
+            try:
+                lock.unlink()
+            except OSError:
+                pass
+            fd = os.open(str(lock), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+        os.write(fd, str(os.getpid()).encode())
+        os.close(fd)
+        fd = None
+        acquired = True  # only now may we remove it on the way out
+        yield
+    finally:
+        if fd is not None:
+            os.close(fd)
+        # Never delete a lock we didn't acquire — that's someone else's build.
+        if acquired:
+            try:
+                lock.unlink()
+            except OSError:
+                pass
+
+
 # -------------------------------------------------------------------- builder
 class KnowledgeBuilder:
     """Fetches the doc and (re)builds the knowledge base via the LLM."""
@@ -327,10 +381,21 @@ class KnowledgeBuilder:
             }
 
         started = time.time()
-        doc_text, captions = self._caption_images(doc)
-        log.info("SOP doc changed (or forced) — asking %s to extract %d chars…",
-                 self.llm.model, len(doc_text))
-        parsed = self.llm.chat_json(_SYSTEM_PROMPT, _USER_PROMPT.format(doc=doc_text))
+        try:
+            lock_ctx = build_lock(self.kb._path)  # noqa: SLF001
+            lock_ctx.__enter__()
+        except BuildInProgress as e:
+            log.info("Skipping rebuild: %s", e)
+            return {"ok": True, "changed": False, "skipped_llm": True,
+                    "reason": str(e), "entries": len(self.kb.entries)}
+        try:
+            doc_text, captions = self._caption_images(doc)
+            log.info("SOP doc changed (or forced) — asking %s to extract %d chars…",
+                     self.llm.model, len(doc_text))
+            parsed = self.llm.chat_json(_SYSTEM_PROMPT, _USER_PROMPT.format(doc=doc_text))
+        finally:
+            lock_ctx.__exit__(None, None, None)
+
         entries = _clean_entries(parsed)
         if not entries:
             raise LLMError("model returned no usable entries")
