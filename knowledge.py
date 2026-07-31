@@ -128,9 +128,12 @@ def _score(alert_text: str, entry: dict[str, Any]) -> float:
             covered = len(a_tok & c_tok) / max(1, len(c_tok))
             best = max(best, overlap, covered * 0.7)
 
-    kws = [k for k in (entry.get("keywords") or []) if k]
+    # Keywords must match WHOLE WORDS, not substrings: a substring test lets
+    # "pod"/"usage" hit inside "PodPVCSpaceUsage90" and match it to the
+    # unrelated "POD CPU Usage" runbook entry.
+    kws = [normalize(k) for k in (entry.get("keywords") or []) if normalize(k)]
     if kws:
-        hit = sum(1 for k in kws if normalize(k) and normalize(k) in a_norm)
+        hit = sum(1 for k in kws if set(k.split()) <= a_tok)
         if hit:
             best = max(best, 0.55 + 0.1 * hit if hit >= len(kws) else 0.4 + 0.1 * hit)
     return min(best, 1.0)

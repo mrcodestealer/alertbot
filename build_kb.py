@@ -5,6 +5,7 @@
   python build_kb.py build [--force]    # build/refresh monitorflow.json
   python build_kb.py show               # print what's currently stored
   python build_kb.py test "pm2 restart" # test a lookup against the stored KB
+  python build_kb.py coverage           # which real alerts are / aren't documented
 """
 from __future__ import annotations
 
@@ -95,6 +96,59 @@ def cmd_show() -> int:
     return 0
 
 
+def cmd_coverage(limit_pages: int = 4) -> int:
+    """Compare the KB against alerts actually seen on the dashboard.
+
+    Shows which real alerts are documented, which are not (so you know what to
+    add to the wiki), and flags weak matches worth double-checking.
+    """
+    from collections import Counter
+
+    from monitor_client import MonitorClient
+
+    kb = KnowledgeBase()
+    if not kb.entries:
+        print("Knowledge base is empty — run: python build_kb.py build")
+        return 1
+
+    mc = MonitorClient()
+    mc.login()
+    rules: Counter = Counter()
+    for a in mc.list_all_alerts(severity=CONFIG.severity_filter, page_size=200, max_pages=limit_pages):
+        rules[a.get("alert_rule") or "?"] += 1
+
+    matched, weak, missing = [], [], []
+    for rule, cnt in rules.most_common():
+        v = kb.lookup({"alert_rule": rule, "summary": rule})
+        title = (v.get("entry") or {}).get("alert_title", "")
+        if not v["in_docs"]:
+            missing.append((cnt, rule))
+        elif v["score"] < 0.75:
+            weak.append((cnt, rule, v["score"], title))
+        else:
+            matched.append((cnt, rule, v["score"], title))
+
+    total = sum(rules.values()) or 1
+    covered = sum(c for c, *_ in matched) + sum(c for c, *_ in weak)
+    print(f"Alert rules seen : {len(rules)} distinct ({total} occurrences)")
+    print(f"KB entries       : {len(kb.entries)}")
+    print(f"Coverage         : {covered}/{total} occurrences ({100*covered/total:.0f}%)\n")
+
+    print(f"=== DOCUMENTED ({len(matched)}) ===")
+    for c, rule, s, title in matched:
+        print(f"  x{c:<5} {rule[:52]:<54} -> {title[:40]}")
+
+    if weak:
+        print(f"\n=== WEAK MATCHES ({len(weak)}) — verify these are really the same alert ===")
+        for c, rule, s, title in weak:
+            print(f"  x{c:<5} [{s}] {rule[:46]:<48} -> {title[:40]}")
+
+    print(f"\n=== NOT IN THE DOC ({len(missing)}) — treated as IMPORTANT; add the frequent ones to the wiki ===")
+    for c, rule in missing:
+        print(f"  x{c:<5} {rule[:80]}")
+    return 0
+
+
 def cmd_test(query: str) -> int:
     kb = KnowledgeBase()
     v = kb.lookup({"alert_rule": query, "summary": query})
@@ -116,6 +170,8 @@ def main() -> int:
             print('usage: python build_kb.py test "alert name"')
             return 2
         return cmd_test(" ".join(args[1:]))
+    if cmd == "coverage":
+        return cmd_coverage()
     print(__doc__)
     return 2
 
