@@ -121,6 +121,11 @@ class Config:
     # the model return an EMPTY reply. Keep this comfortably above doc+output.
     ollama_num_ctx: int = _int("OLLAMA_NUM_CTX", 32768)
     ollama_num_predict: int = _int("OLLAMA_NUM_PREDICT", 8192)
+    # Per-image timeout for the vision model, and a total budget for captioning
+    # the whole doc. Captioning is a nice-to-have: when the budget is spent the
+    # build carries on with text only rather than stalling for an hour.
+    ollama_vision_timeout_seconds: int = _int("OLLAMA_VISION_TIMEOUT_SECONDS", 120)
+    kb_caption_budget_seconds: int = _int("KB_CAPTION_BUDGET_SECONDS", 600)
     # Working-hours window used to pick which SOP guidance to show.
     work_start_hour: int = _int("WORK_START_HOUR", 9)
     work_end_hour: int = _int("WORK_END_HOUR", 18)

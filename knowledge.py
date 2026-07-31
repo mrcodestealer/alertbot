@@ -334,29 +334,41 @@ class KnowledgeBuilder:
                  len(todo), CONFIG.ollama_vision_model, len(tokens) - len(todo))
 
         failures = 0
-        for tok in todo:
+        deadline = time.time() + CONFIG.kb_caption_budget_seconds
+        for i, tok in enumerate(todo, 1):
+            if time.time() > deadline:
+                log.warning(
+                    "Caption budget (%ds) spent after %d/%d image(s) — continuing with text only. "
+                    "Raise KB_CAPTION_BUDGET_SECONDS, or set OLLAMA_VISION_MODEL= to skip images.",
+                    CONFIG.kb_caption_budget_seconds, i - 1, len(todo),
+                )
+                break
             data = self.docs.download_image(tok)
             if not data:
                 cached[tok] = ""
                 continue
             try:
+                t0 = time.time()
                 caption = vision.chat_text(
                     "You describe screenshots from an SRE alert runbook. Be brief and factual.",
                     "Describe this screenshot in one or two sentences. If it shows an alert "
                     "message, state the alert name and any threshold or instruction visible.",
                     images=[data],
-                    timeout=180,
+                    timeout=CONFIG.ollama_vision_timeout_seconds,
                 )
                 cached[tok] = " ".join(caption.split())[:400]
                 failures = 0
-                log.debug("caption %s -> %s", tok[:8], cached[tok][:80])
+                log.info("Captioned image %d/%d in %.0fs", i, len(todo), time.time() - t0)
             except Exception as e:  # noqa: BLE001
                 cached[tok] = ""
                 failures += 1
                 log.warning("Captioning failed for image %s: %s", tok[:10], str(e)[:160])
                 if failures >= 3:
-                    log.warning("Giving up on image captioning after %d consecutive failures "
-                                "— continuing with text only.", failures)
+                    log.warning(
+                        "Giving up on image captioning after %d consecutive failures — "
+                        "continuing with text only. The SOP text is what matters; set "
+                        "OLLAMA_VISION_MODEL= to skip images entirely.", failures,
+                    )
                     break
 
         for tok, cap in cached.items():
