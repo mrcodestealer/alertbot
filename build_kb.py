@@ -41,6 +41,20 @@ def cmd_check() -> int:
     print(f"  {'✓' if avail else '✗'} {msg}")
     ok = ok and avail
 
+    if CONFIG.ollama_vision_model:
+        vis = OllamaClient(model=CONFIG.ollama_vision_model)
+        v_ok, v_msg = vis.available()
+        print(f"Vision     : {CONFIG.ollama_vision_model}")
+        if v_ok:
+            print(f"  ✓ {v_msg} — the doc's screenshots will be read")
+        else:
+            print(f"  ! {v_msg}")
+            print(f"    Images will be SKIPPED (text still works). To enable them:")
+            print(f"      ollama pull {CONFIG.ollama_vision_model}")
+            print(f"    or set OLLAMA_VISION_MODEL= in .env to turn images off.")
+    else:
+        print("Vision     : (disabled — OLLAMA_VISION_MODEL is empty; screenshots skipped)")
+
     print(f"Working hrs: days={CONFIG.work_days} {CONFIG.work_start_hour}:00-{CONFIG.work_end_hour}:00 "
           f"UTC+{CONFIG.work_timezone_offset_hours} -> right now it is "
           f"{'WORKING hours' if is_working_hours() else 'NON-working hours'}")

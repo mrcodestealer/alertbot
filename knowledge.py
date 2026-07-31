@@ -81,6 +81,8 @@ _NOISE = re.compile(
 )
 _PUNCT = re.compile(r"[\[\]\(\)\{\}<>:,\|/\\\-_#>=%\"'\.]+")
 _WS = re.compile(r"\s+")
+# [IMAGE:<token>] markers emitted by docs_client.render_blocks
+_IMAGE_MARKER = re.compile(r"\[IMAGE:[A-Za-z0-9]+\]")
 
 
 def normalize(text: str) -> str:
@@ -254,14 +256,30 @@ class KnowledgeBuilder:
         text = doc["text"]
         tokens = doc["image_tokens"]
         if not CONFIG.ollama_vision_model or not tokens:
-            return text, {}
+            # Neutralise the markers so raw image tokens never reach the model.
+            return _IMAGE_MARKER.sub("[SCREENSHOT]", text), {}
 
         cached: dict[str, str] = dict(self.kb._data.get("image_captions") or {})  # noqa: SLF001
         vision = OllamaClient(model=CONFIG.ollama_vision_model)
         todo = [t for t in tokens if t not in cached]
+
+        if todo:
+            # Pre-flight once: if the vision model isn't installed, skip images
+            # entirely instead of failing 21 times.
+            ok, why = vision.available()
+            if not ok:
+                log.warning(
+                    "Vision model %r unavailable (%s) — continuing with text only. "
+                    "Install it (`ollama pull %s`), pick another via OLLAMA_VISION_MODEL, "
+                    "or set OLLAMA_VISION_MODEL= to silence this.",
+                    CONFIG.ollama_vision_model, why, CONFIG.ollama_vision_model,
+                )
+                return _IMAGE_MARKER.sub("[SCREENSHOT]", text), {}
+
         log.info("Captioning %d image(s) with %s (%d cached)",
                  len(todo), CONFIG.ollama_vision_model, len(tokens) - len(todo))
 
+        failures = 0
         for tok in todo:
             data = self.docs.download_image(tok)
             if not data:
@@ -276,15 +294,24 @@ class KnowledgeBuilder:
                     timeout=180,
                 )
                 cached[tok] = " ".join(caption.split())[:400]
+                failures = 0
                 log.debug("caption %s -> %s", tok[:8], cached[tok][:80])
-            except Exception:
-                log.exception("Captioning failed for image %s", tok)
+            except Exception as e:  # noqa: BLE001
                 cached[tok] = ""
+                failures += 1
+                log.warning("Captioning failed for image %s: %s", tok[:10], str(e)[:160])
+                if failures >= 3:
+                    log.warning("Giving up on image captioning after %d consecutive failures "
+                                "— continuing with text only.", failures)
+                    break
 
         for tok, cap in cached.items():
             text = text.replace(f"[IMAGE:{tok}]", f"[SCREENSHOT: {cap}]" if cap else "[SCREENSHOT]")
+        # Any marker left over (e.g. we bailed out early) still gets neutralised,
+        # so raw tokens never reach the model.
+        text = _IMAGE_MARKER.sub("[SCREENSHOT]", text)
         # Keep only captions for images still in the doc.
-        return text, {t: cached.get(t, "") for t in tokens}
+        return text, {t: cached.get(t, "") for t in tokens if t in cached}
 
     def refresh(self, *, force: bool = False) -> dict[str, Any]:
         """Returns a small status dict describing what happened."""
