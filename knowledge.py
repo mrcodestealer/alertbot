@@ -134,8 +134,14 @@ def _score(alert_text: str, entry: dict[str, Any]) -> float:
     kws = [normalize(k) for k in (entry.get("keywords") or []) if normalize(k)]
     if kws:
         hit = sum(1 for k in kws if set(k.split()) <= a_tok)
-        if hit:
-            best = max(best, 0.55 + 0.1 * hit if hit >= len(kws) else 0.4 + 0.1 * hit)
+        if hit >= len(kws):
+            # Every keyword present: strong evidence, may decide the match.
+            best = max(best, 0.55 + 0.1 * hit)
+        elif hit:
+            # Partial hits are usually generic words ("request", "error", "cpu").
+            # Capped below MATCH_THRESHOLD so they can only reinforce a match the
+            # title similarity already supports — never create one on their own.
+            best = max(best, min(0.5, 0.3 + 0.1 * hit))
     return min(best, 1.0)
 
 
