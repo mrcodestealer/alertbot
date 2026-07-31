@@ -145,6 +145,64 @@ def _score(alert_text: str, entry: dict[str, Any]) -> float:
     return min(best, 1.0)
 
 
+# --------------------------------------------------- per-instance conditions
+# Facts carried in an alert's instance/description, e.g. "namespace: fpms-nt".
+_FACT_RE = re.compile(r"([A-Za-z_][\w]*)\s*[:=]\s*([^\s|,]+)")
+# Keys worth reasoning about, normalised to a common name.
+_FACT_KEYS = {
+    "namespace": "namespace",
+    "kubernetes_namespace": "namespace",
+    "container": "container",
+    "pod": "pod",
+    "pod_name": "pod",
+    "unique_cluster_name": "cluster",
+    "instancename": "instance",
+}
+
+
+def alert_facts(alert: dict[str, Any]) -> dict[str, str]:
+    """Pull key:value facts out of an alert's instance/description."""
+    text = f"{alert.get('instance') or ''}\n{alert.get('description') or ''}"
+    facts: dict[str, str] = {}
+    for m in _FACT_RE.finditer(text):
+        key = _FACT_KEYS.get(m.group(1).strip().lower())
+        if key and key not in facts:
+            facts[key] = m.group(2).strip().strip("`\"'")
+    return facts
+
+
+def condition_notes(alert: dict[str, Any], entry: dict[str, Any]) -> list[str]:
+    """Compare conditions mentioned in the SOP against this alert's own facts.
+
+    The doc's guidance is generic ("tag SRE if namespace is bi-prod"), but the
+    alert knows its actual namespace — so say plainly whether that branch applies.
+    """
+    facts = alert_facts(alert)
+    if not facts:
+        return []
+    sop_text = " ".join(
+        str(entry.get(k) or "")
+        for k in ("working_hours_action", "non_working_hours_action", "escalation", "summary")
+    ) + " " + " ".join(entry.get("ignore_conditions") or []) + " " + " ".join(entry.get("notes") or [])
+
+    notes: list[str] = []
+    for key, actual in facts.items():
+        # "namespace is bi-prod", "namespace: bi-prod", "namespace = bi-prod"
+        pattern = re.compile(rf"\b{re.escape(key)}\b\s*(?:is|=|:)\s*[`\"']?([\w\-\.]+)", re.IGNORECASE)
+        # rstrip('.') so a sentence-final period doesn't become part of the value
+        # ("...is bi-prod." must compare as "bi-prod").
+        mentioned = {m.group(1).strip().strip("`\"'").rstrip(".,;").lower() for m in pattern.finditer(sop_text)}
+        mentioned.discard("")
+        if not mentioned:
+            continue
+        if actual.lower() in mentioned:
+            notes.append(f"✅ **{key}** is `{actual}` — the SOP's `{actual}` case **applies**.")
+        else:
+            shown = ", ".join(f"`{m}`" for m in sorted(mentioned)[:3])
+            notes.append(f"➖ **{key}** is `{actual}`, not {shown} — that condition does **not** apply here.")
+    return notes
+
+
 def is_working_hours(now: datetime | None = None) -> bool:
     tz = timezone(timedelta(hours=CONFIG.work_timezone_offset_hours))
     now = (now or datetime.now(timezone.utc)).astimezone(tz)
@@ -249,6 +307,8 @@ class KnowledgeBase:
             "entry": best,
             "score": round(best_score, 2),
             "working_hours": working,
+            # Resolve the SOP's generic conditions against THIS alert's facts.
+            "condition_notes": condition_notes(alert, best),
         }
 
 

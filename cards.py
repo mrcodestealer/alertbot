@@ -92,6 +92,10 @@ def sop_elements(verdict: dict[str, Any] | None) -> list[dict[str, Any]]:
         parts.append(f"**📞 Escalation:** {_clip(entry.get('escalation'), 250)}")
     if entry.get("ignore_conditions"):
         parts.append("**🔕 Can ignore when:** " + "; ".join(entry["ignore_conditions"][:3]))
+    # Resolve the SOP's generic "if namespace is X" clauses against this alert.
+    cond = verdict.get("condition_notes") or []
+    if cond:
+        parts.append("**🎯 This alert:**\n" + "\n".join(cond[:4]))
     notes = entry.get("notes") or []
     if notes:
         parts.append("**📝 Notes:** " + "; ".join(_clip(n, 150) for n in notes[:3]))
