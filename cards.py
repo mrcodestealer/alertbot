@@ -67,20 +67,18 @@ def sop_elements(verdict: dict[str, Any] | None) -> list[dict[str, Any]]:
     hours = "working hours / 工作时间" if verdict.get("working_hours") else "non-working hours / 非工作时间"
 
     if not verdict.get("in_docs"):
-        return [
-            _divider(),
-            {
-                "tag": "div",
-                "text": {
-                    "tag": "lark_md",
-                    "content": (
-                        "**📕 SOP**\n"
-                        "⚠️ **Not found in the SOP doc — treat as IMPORTANT.**\n"
-                        "Please check with SRE, then add it to the wiki so next time it's known."
-                    ),
-                },
-            },
-        ]
+        content = (
+            "**📕 SOP**\n"
+            "⚠️ **Not found in the SOP doc — treat as IMPORTANT.**\n"
+            "Please check with SRE, then add it to the wiki so next time it's known."
+        )
+        # No alert-specific entry, so fall back to the doc's general rules.
+        rules = verdict.get("global_rules") or []
+        if rules:
+            content += "\n\n**General rules for this group:**\n" + "\n".join(
+                f"- {_clip(r, 200)}" for r in rules
+            )
+        return [_divider(), {"tag": "div", "text": {"tag": "lark_md", "content": content}}]
 
     entry = verdict.get("entry") or {}
     badge = _IMPORTANCE_BADGE.get(str(verdict.get("importance", "medium")).lower(), "⚠️ MEDIUM")

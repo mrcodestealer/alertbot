@@ -222,7 +222,9 @@ class KnowledgeBase:
 
         working = is_working_hours()
         if best is None or best_score < self.MATCH_THRESHOLD:
-            # Not documented -> treat as important (explicit requirement).
+            # Not documented -> treat as important (explicit requirement). Fall
+            # back to the doc's global rules so the card still says *something*
+            # actionable rather than just "unknown".
             return {
                 "matched": False,
                 "in_docs": False,
@@ -232,6 +234,7 @@ class KnowledgeBase:
                 "entry": None,
                 "score": round(best_score, 2),
                 "working_hours": working,
+                "global_rules": self.global_rules[:3],
             }
 
         action = (best.get("working_hours_action") if working else best.get("non_working_hours_action")) or ""
