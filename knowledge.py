@@ -422,7 +422,7 @@ class KnowledgeBuilder:
             log.info("SOP doc unchanged (hash %s) — skipping LLM rebuild", doc["content_hash"][:12])
             return {
                 "ok": True, "changed": False, "skipped_llm": True,
-                "entries": len(self.kb.entries), "title": doc["title"],
+                "entries": len(self.kb.entries), "doc_title": doc["title"],
             }
 
         started = time.time()
@@ -472,7 +472,7 @@ class KnowledgeBuilder:
         log.info("Knowledge base rebuilt: %d entries in %.1fs", len(entries), took)
         return {
             "ok": True, "changed": True, "skipped_llm": False,
-            "entries": len(entries), "seconds": round(took, 1), "title": doc["title"],
+            "entries": len(entries), "seconds": round(took, 1), "doc_title": doc["title"],
         }
 
 

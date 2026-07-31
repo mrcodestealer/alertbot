@@ -66,6 +66,12 @@ def cmd_build(force: bool) -> int:
     kb = KnowledgeBase()
     status = KnowledgeBuilder(kb).refresh(force=force)
     print(json.dumps(status, indent=2, ensure_ascii=False))
+    # Show the alert names that were extracted — "doc_title" above is the wiki
+    # page's name, these are the alerts the bot can now recognise.
+    if status.get("ok") and kb.entries:
+        print(f"\nExtracted {len(kb.entries)} alert(s):")
+        for e in kb.entries:
+            print(f"  [{e.get('importance','?'):<6}] {e.get('alert_title')}")
     return 0 if status.get("ok") else 1
 
 
