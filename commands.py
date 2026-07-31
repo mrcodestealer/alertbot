@@ -62,10 +62,47 @@ def _build_matcher(pattern: str):
 
 
 class CommandHandler:
-    def __init__(self, monitor: MonitorClient, lark: LarkClient, state: State) -> None:
+    def __init__(self, monitor: MonitorClient, lark: LarkClient, state: State, kb=None) -> None:
         self.monitor = monitor
         self.lark = lark
         self.state = state
+        self.kb = kb  # KnowledgeBase | None
+
+    # ------------------------------------------------------------------- /kb
+    def handle_kb(self, message_id: str, text: str, refresher=None,
+                  requested_by: str | None = None) -> None:
+        """/kb            -> knowledge-base status
+        /kb refresh    -> force a rebuild from the wiki doc
+        /kb <alert name> -> show what the bot would say for that alert
+        """
+        parts = text.strip().split(maxsplit=1)
+        arg = parts[1].strip() if len(parts) > 1 else ""
+        try:
+            if self.kb is None:
+                self.lark.reply_text(message_id, "Knowledge base is disabled (KB_ENABLED=false).")
+                return
+
+            if arg.lower() in ("refresh", "reload", "update", "sync"):
+                if refresher is None:
+                    self.lark.reply_text(message_id, "Refresher isn't running (KB_WIKI_TOKEN unset?).")
+                    return
+                self.lark.reply_text(
+                    message_id,
+                    "🔄 Refreshing the knowledge base from the wiki doc — this can take a "
+                    "while if the doc changed (the model has to re-read it).",
+                )
+                refresher.trigger()
+                return
+
+            if arg:  # treat as an alert name to test
+                v = self.kb.lookup({"alert_rule": arg, "summary": arg})
+                self.lark.reply_card(message_id, cards.kb_lookup_card(arg, v), in_thread=True)
+                return
+
+            self.lark.reply_card(message_id, cards.kb_status_card(self.kb), in_thread=True)
+        except Exception as e:  # noqa: BLE001
+            log.exception("/kb failed")
+            self.lark.reply_text(message_id, f"⚠️ /kb failed: {e}")
 
     # ---------------------------------------------------------------- /check
     def handle_check(self, message_id: str, requested_by: str | None = None) -> None:

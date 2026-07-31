@@ -33,13 +33,14 @@ def _int(name: str, default: int) -> int:
         return default
 
 
-def _int_list(name: str, default: str) -> list[int]:
-    """Parse a comma-separated list of positive ints (e.g. '15,30,60'),
-    tolerating inline '# comments' and whitespace. Empty = disabled."""
+def _int_list(name: str, default: str, min_value: int = 1) -> list[int]:
+    """Parse a comma-separated list of ints (e.g. '15,30,60'), tolerating inline
+    '# comments' and whitespace. Values below min_value are dropped.
+    (min_value=0 matters for WORK_DAYS, where Monday is 0.)"""
     out: list[int] = []
     for s in os.getenv(name, default).split(","):
         tok = s.split("#", 1)[0].strip()
-        if tok.isdigit() and int(tok) > 0:
+        if tok.isdigit() and int(tok) >= min_value:
             out.append(int(tok))
     return sorted(set(out))
 
@@ -103,6 +104,28 @@ class Config:
     deploy_git_dir: str = os.getenv("DEPLOY_GIT_DIR", str(BASE_DIR))
     # Comma-separated Lark open_ids allowed to deploy. Empty = any DM sender
     # (a warning is logged). Get your open_id by DMing the bot "/whoami".
+    # --- Knowledge base (SOP doc -> monitorflow.json) ---
+    kb_enabled: bool = _bool("KB_ENABLED", True)
+    # Lark Wiki node token from the doc URL (…/wiki/<TOKEN>).
+    kb_wiki_token: str = os.getenv("KB_WIKI_TOKEN", "")
+    kb_refresh_minutes: int = _int("KB_REFRESH_MINUTES", 60)
+    kb_file: Path = field(default_factory=lambda: BASE_DIR / os.getenv("KB_FILE", "monitorflow.json"))
+    # Ollama (or any OpenAI-compatible /api/chat) endpoint + models.
+    ollama_base_url: str = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434").rstrip("/")
+    ollama_model: str = os.getenv("OLLAMA_MODEL", "qwen3.6:35b-a3b")
+    # Optional vision model for reading the doc's screenshots. Blank = skip images
+    # (set to a VL model, e.g. "qwen2.5vl:7b", to have them described).
+    ollama_vision_model: str = os.getenv("OLLAMA_VISION_MODEL", "")
+    ollama_timeout_seconds: int = _int("OLLAMA_TIMEOUT_SECONDS", 600)
+    # Working-hours window used to pick which SOP guidance to show.
+    work_start_hour: int = _int("WORK_START_HOUR", 9)
+    work_end_hour: int = _int("WORK_END_HOUR", 18)
+    # Mon=0 … Sun=6. Default Mon–Fri.
+    work_days: list[int] = field(
+        default_factory=lambda: _int_list("WORK_DAYS", "0,1,2,3,4", min_value=0) or [0, 1, 2, 3, 4]
+    )
+    work_timezone_offset_hours: int = _int("WORK_TZ_OFFSET_HOURS", 8)
+
     # --- /log command (read journalctl from chat) ---
     log_command_enabled: bool = _bool("LOG_COMMAND_ENABLED", True)
     log_default_lines: int = _int("LOG_DEFAULT_LINES", 40)

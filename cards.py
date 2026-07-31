@@ -52,7 +52,60 @@ def _divider() -> dict[str, Any]:
     return {"tag": "hr"}
 
 
-def new_alert_card(alert: dict[str, Any], image_key: str | None = None) -> dict[str, Any]:
+_IMPORTANCE_BADGE = {
+    "high": "🚨 HIGH",
+    "medium": "⚠️ MEDIUM",
+    "low": "🔽 LOW",
+    "unknown": "❓ UNKNOWN",
+}
+
+
+def sop_elements(verdict: dict[str, Any] | None) -> list[dict[str, Any]]:
+    """Build the 'what do I do' section from a knowledge-base verdict."""
+    if not verdict:
+        return []
+    hours = "working hours / 工作时间" if verdict.get("working_hours") else "non-working hours / 非工作时间"
+
+    if not verdict.get("in_docs"):
+        return [
+            _divider(),
+            {
+                "tag": "div",
+                "text": {
+                    "tag": "lark_md",
+                    "content": (
+                        "**📕 SOP**\n"
+                        "⚠️ **Not found in the SOP doc — treat as IMPORTANT.**\n"
+                        "Please check with SRE, then add it to the wiki so next time it's known."
+                    ),
+                },
+            },
+        ]
+
+    entry = verdict.get("entry") or {}
+    badge = _IMPORTANCE_BADGE.get(str(verdict.get("importance", "medium")).lower(), "⚠️ MEDIUM")
+    parts = [f"**📕 SOP** · Importance: **{badge}** · matched *{_clip(entry.get('alert_title'), 80)}*"]
+    if entry.get("summary"):
+        parts.append(f"_{_clip(entry.get('summary'), 250)}_")
+    action = verdict.get("action")
+    if action:
+        parts.append(f"**▶ Now ({hours}):**\n{_clip(action, 350)}")
+    if entry.get("escalation"):
+        parts.append(f"**📞 Escalation:** {_clip(entry.get('escalation'), 250)}")
+    if entry.get("ignore_conditions"):
+        parts.append("**🔕 Can ignore when:** " + "; ".join(entry["ignore_conditions"][:3]))
+    notes = entry.get("notes") or []
+    if notes:
+        parts.append("**📝 Notes:** " + "; ".join(_clip(n, 150) for n in notes[:3]))
+
+    return [_divider(), {"tag": "div", "text": {"tag": "lark_md", "content": "\n\n".join(parts)}}]
+
+
+def new_alert_card(
+    alert: dict[str, Any],
+    image_key: str | None = None,
+    kb_verdict: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     """Card for a newly-detected firing alert."""
     title = alert.get("alert_rule") or alert.get("summary") or f"Alert #{alert.get('id')}"
     elements: list[dict[str, Any]] = [
@@ -71,6 +124,8 @@ def new_alert_card(alert: dict[str, Any], image_key: str | None = None) -> dict[
         {"tag": "div", "text": {"tag": "lark_md", "content": f"**Instance / 实例**\n{_clip(alert.get('instance'), 300)}"}},
         {"tag": "div", "text": {"tag": "lark_md", "content": f"**Description / 详细描述**\n{_clip(alert.get('description'))}"}},
     ]
+
+    elements.extend(sop_elements(kb_verdict))
 
     if image_key:
         elements.append(_divider())
@@ -150,6 +205,66 @@ def firing_reminder_card(alert: dict[str, Any], minutes: int) -> dict[str, Any]:
                 },
             }
         ],
+    }
+
+
+def kb_status_card(kb: Any) -> dict[str, Any]:
+    """Status of the SOP knowledge base (monitorflow.json)."""
+    src = getattr(kb, "_data", {}).get("source") or {}
+    entries = kb.entries
+    lines = [
+        f"**Entries:** {len(entries)}",
+        f"**Doc:** {src.get('doc_title') or '-'}",
+        f"**Last built:** {kb.generated_at or 'never'}",
+        f"**Model:** {getattr(kb, '_data', {}).get('model') or '-'}",
+        f"**Doc hash:** `{(kb.content_hash or '-')[:12]}`",
+    ]
+    rules = kb.global_rules
+    elements: list[dict[str, Any]] = [
+        {"tag": "div", "text": {"tag": "lark_md", "content": "\n".join(lines)}}
+    ]
+    if rules:
+        elements.append(_divider())
+        elements.append({
+            "tag": "div",
+            "text": {"tag": "lark_md", "content": "**Global rules**\n" + "\n".join(f"- {_clip(r, 200)}" for r in rules[:6])},
+        })
+    if entries:
+        listing = "\n".join(
+            f"- {_IMPORTANCE_BADGE.get(str(e.get('importance','medium')).lower(),'')} {_clip(e.get('alert_title'), 70)}"
+            for e in entries[:20]
+        )
+        if len(entries) > 20:
+            listing += f"\n… +{len(entries) - 20} more"
+        elements.append(_divider())
+        elements.append({"tag": "div", "text": {"tag": "lark_md", "content": "**Documented alerts**\n" + listing}})
+    elements.append({
+        "tag": "note",
+        "elements": [{"tag": "plain_text", "content": "/kb refresh to rebuild · /kb <alert name> to test a lookup"}],
+    })
+    return {
+        "config": {"wide_screen_mode": True},
+        "header": {"title": {"tag": "plain_text", "content": "📕 SOP Knowledge Base"},
+                   "template": "blue" if entries else "grey"},
+        "elements": elements,
+    }
+
+
+def kb_lookup_card(query: str, verdict: dict[str, Any]) -> dict[str, Any]:
+    """Preview what the bot would attach for a given alert name."""
+    matched = verdict.get("in_docs")
+    elements = [
+        {"tag": "div", "text": {"tag": "lark_md",
+                                "content": f"**Query:** {_clip(query, 150)}\n**Match score:** {verdict.get('score')}"}}
+    ]
+    elements.extend(sop_elements(verdict))
+    return {
+        "config": {"wide_screen_mode": True},
+        "header": {
+            "title": {"tag": "plain_text", "content": "🔎 SOP lookup"},
+            "template": "green" if matched else "orange",
+        },
+        "elements": elements,
     }
 
 

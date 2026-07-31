@@ -21,8 +21,10 @@ from lark_oapi.api.im.v1 import P2ImMessageReceiveV1
 
 from commands import CommandHandler
 from config import CONFIG
+from knowledge import KnowledgeBase, KnowledgeBuilder
 from lark_client import LarkClient
 from monitor_client import MonitorClient
+from refresher import KnowledgeRefresher
 from state import State
 from watcher import Watcher
 
@@ -36,7 +38,9 @@ log = logging.getLogger("alertbot")
 monitor = MonitorClient()
 lark_client = LarkClient()
 state = State(CONFIG.state_file)
-commands = CommandHandler(monitor, lark_client, state)
+knowledge = KnowledgeBase() if CONFIG.kb_enabled else None
+refresher: KnowledgeRefresher | None = None
+commands = CommandHandler(monitor, lark_client, state, knowledge)
 
 # Handle command work off the WebSocket receive thread so we never block it.
 _executor = ThreadPoolExecutor(max_workers=4, thread_name_prefix="cmd")
@@ -99,6 +103,11 @@ def on_message(data: P2ImMessageReceiveV1) -> None:
                 lark_client.reply_text(message_id, f"Your open_id:\n{sender}")
             else:
                 lark_client.reply_text(message_id, "Couldn't read your open_id from this message.")
+            return
+
+        # /kb — knowledge-base status, lookup test, or forced refresh.
+        if tokens and tokens[0] in ("/kb", "/sop") and (chat_type == "p2p" or mentioned):
+            _executor.submit(commands.handle_kb, message_id, text, refresher, sender)
             return
 
         # /log — read the service journal (admin-gated; logs can be sensitive).
@@ -224,7 +233,17 @@ def main() -> int:
     except Exception:
         log.exception("Initial MonitorFlow login failed (will retry in watcher)")
 
-    Watcher(monitor, lark_client, state).start()
+    Watcher(monitor, lark_client, state, knowledge).start()
+
+    # Knowledge base: hourly sync of the SOP wiki doc -> monitorflow.json.
+    global refresher
+    if CONFIG.kb_enabled and knowledge is not None:
+        if CONFIG.kb_wiki_token:
+            refresher = KnowledgeRefresher(KnowledgeBuilder(knowledge))
+            refresher.start()
+        else:
+            log.warning("KB_ENABLED=true but KB_WIKI_TOKEN is unset — SOP lookups disabled")
+    log.info("Knowledge base: %d entry(ies) loaded", len(knowledge.entries) if knowledge else 0)
 
     # Register no-op handlers for events Lark delivers but we don't act on, so
     # lark-oapi stops logging "processor not found" ERRORs for them.

@@ -227,6 +227,12 @@ cd /root/alertbot && git pull && systemctl restart alertbot && journalctl -u ale
   **your** Lark `open_id` — the id of whoever sent the message. Use it to fill
   `DEPLOY_ADMIN_IDS`. In a group you must @-mention the bot (`@AlertBot who am i`);
   in a DM just send it.
+- **`/kb` — SOP knowledge base** (see §8 below)
+  | Command | Result |
+  |---|---|
+  | `/kb` | status: entry count, doc title, last build, documented alerts |
+  | `/kb refresh` | force a rebuild from the wiki doc now |
+  | `/kb pm2 restart` | preview what the bot would attach for that alert |
 - **`/log` — read the service journal from chat** (like `journalctl`, with
   grep-style filtering). Restricted to `DEPLOY_ADMIN_IDS`; works in a DM or when
   the bot is @-mentioned.
@@ -272,6 +278,63 @@ See `.env.example`. Key ones:
 | `REACTION_PROCESSING` / `REACTION_DONE` | `OnIt` / `DONE` | Emoji reactions for `/check`. |
 
 ---
+
+## 6b. SOP knowledge base (`monitorflow.json`)
+
+The bot keeps a local, machine-readable copy of your on-call SOP wiki page so it
+can tell you — **on the alert card itself** — whether an alert matters and what to
+do, without anyone opening the doc.
+
+```
+ hourly:  Lark wiki doc ──► (hash changed?) ──► qwen3.6:35b-a3b ──► monitorflow.json
+ alert:   new alert ──► local lookup in monitorflow.json (no LLM, instant) ──► card
+```
+
+**Why it's fast:** the LLM reads the doc only when its content hash changes. Every
+alert lookup is a local match against `monitorflow.json`, so alerts are never
+delayed by the model.
+
+**Setup**
+```ini
+KB_ENABLED=true
+KB_WIKI_TOKEN=S2Oxw8b0Qihaa6kBKo5lCiFLgre   # from .../wiki/<TOKEN>
+KB_REFRESH_MINUTES=60
+OLLAMA_BASE_URL=http://localhost:11434
+OLLAMA_MODEL=qwen3.6:35b-a3b
+WORK_START_HOUR=9
+WORK_END_HOUR=18
+WORK_DAYS=0,1,2,3,4          # Mon=0 … Sun=6
+WORK_TZ_OFFSET_HOURS=8
+```
+The bot's Lark app needs read access to the wiki page (`wiki:wiki:readonly`,
+`docx:document:readonly`, `drive:drive:readonly`) — and the page must be shared
+with the app.
+
+**CLI helper** (run on the server, in the venv):
+```bash
+.venv/bin/python build_kb.py check              # verify doc access + Ollama
+.venv/bin/python build_kb.py build --force      # build monitorflow.json now
+.venv/bin/python build_kb.py show               # print what was extracted
+.venv/bin/python build_kb.py test "pm2 restart" # test a lookup
+```
+
+**What the alert card gains**
+```
+📕 SOP · Importance: 🚨 HIGH · matched CRITICAL - [PROD] pm2 restart
+▶ Now (non-working hours): if it fires and does not resolve then fires again
+  after 5 mins, call SRE on duty immediately
+📞 Escalation: Call platform SRE duty
+🔕 Can ignore when: container: message_server
+```
+
+**Unknown alerts are treated as important.** If an alert isn't in the doc, the card
+says so and tells you to check with SRE and add it to the wiki:
+> ⚠️ Not found in the SOP doc — treat as IMPORTANT.
+
+`monitorflow.json` structure: `source` (doc token + content hash), `global_rules`,
+and `entries[]` with `alert_title`, `aliases`, `keywords`, `importance`,
+`important`, `summary`, `working_hours_action`, `non_working_hours_action`,
+`escalation`, `ignore_conditions`, `notes`.
 
 ## 7. Troubleshooting
 

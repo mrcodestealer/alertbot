@@ -40,11 +40,12 @@ def _parse_dt(value) -> datetime | None:
 
 
 class Watcher(threading.Thread):
-    def __init__(self, monitor: MonitorClient, lark: LarkClient, state: State) -> None:
+    def __init__(self, monitor: MonitorClient, lark: LarkClient, state: State, kb=None) -> None:
         super().__init__(name="alert-watcher", daemon=True)
         self.monitor = monitor
         self.lark = lark
         self.state = state
+        self.kb = kb  # KnowledgeBase | None
         self._stop = threading.Event()
 
     def stop(self) -> None:
@@ -141,11 +142,23 @@ class Watcher(threading.Thread):
         if not CONFIG.lark_alert_chat_id:
             return True, None
         try:
+            # Local SOP lookup — no LLM call here, so this stays fast.
+            verdict = None
+            if self.kb is not None:
+                try:
+                    verdict = self.kb.lookup(alert)
+                    log.info(
+                        "SOP for #%s: in_docs=%s importance=%s score=%s",
+                        aid, verdict.get("in_docs"), verdict.get("importance"), verdict.get("score"),
+                    )
+                except Exception:
+                    log.exception("KB lookup failed for #%s", aid)
+
             image_key = None
             shot = capture_alert_detail(aid)
             if shot:
                 image_key = self.lark.upload_image(shot)
-            card = cards.new_alert_card(alert, image_key=image_key)
+            card = cards.new_alert_card(alert, image_key=image_key, kb_verdict=verdict)
             msg_id = self.lark.send_card(CONFIG.lark_alert_chat_id, card)
             return (msg_id is not None), msg_id
         except Exception:
