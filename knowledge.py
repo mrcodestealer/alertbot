@@ -245,6 +245,33 @@ class BuildInProgress(RuntimeError):
     """Another process is already rebuilding the knowledge base."""
 
 
+def _pid_alive(pid: int) -> bool:
+    """Best-effort liveness check. Unknown -> assume alive (fail safe)."""
+    if pid <= 0:
+        return False
+    if os.name == "nt":  # Windows: os.kill(pid, 0) can't distinguish "gone"
+        try:
+            import ctypes
+
+            # PROCESS_QUERY_LIMITED_INFORMATION
+            handle = ctypes.windll.kernel32.OpenProcess(0x1000, False, pid)
+            if not handle:
+                return False
+            ctypes.windll.kernel32.CloseHandle(handle)
+            return True
+        except Exception:  # noqa: BLE001
+            return True
+    try:
+        os.kill(pid, 0)
+        return True
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True  # exists, owned by someone else
+    except OSError:
+        return True
+
+
 @contextmanager
 def build_lock(kb_path: Path, stale_seconds: int = 3600):
     """Cross-process lock so the service's refresher and a manual `build_kb.py`
@@ -261,16 +288,22 @@ def build_lock(kb_path: Path, stale_seconds: int = 3600):
                 age = time.time() - lock.stat().st_mtime
             except OSError:
                 age = stale_seconds + 1  # vanished underneath us; treat as stale
-            if age <= stale_seconds:
-                holder = ""
-                try:
-                    holder = lock.read_text(encoding="utf-8").strip()
-                except OSError:
-                    pass
+            holder = ""
+            try:
+                holder = lock.read_text(encoding="utf-8").strip()
+            except OSError:
+                pass
+            # A lock whose owner died (e.g. `systemctl restart` during a build)
+            # is stale immediately — don't make the next build wait it out.
+            owner_dead = holder.isdigit() and not _pid_alive(int(holder))
+            if age <= stale_seconds and not owner_dead:
                 raise BuildInProgress(
                     f"another build is in progress (lock held {int(age)}s by pid {holder or '?'})"
                 )
-            log.warning("Removing stale KB build lock (%ds old)", int(age))
+            log.warning(
+                "Reclaiming KB build lock (%ds old, pid %s %s)",
+                int(age), holder or "?", "is gone" if owner_dead else "timed out",
+            )
             try:
                 lock.unlink()
             except OSError:
