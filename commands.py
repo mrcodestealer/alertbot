@@ -102,6 +102,42 @@ class CommandHandler:
         if not self.lark.send_card(chat, card):
             log.error("Failed to post report card for alert #%s", alert_id)
 
+    # ----------------------------------------------------------------- /duty
+    def handle_duty(self, message_id: str, arg: str = "") -> None:
+        """Show today's duty per team and whether each name has an open_id.
+
+        Shows the raw open_id rather than an @-mention on purpose — checking the
+        roster shouldn't ping the whole duty team.
+        """
+        import duty as duty_mod  # local import
+
+        domains = [arg.strip().upper()] if arg.strip() else ["PLATFORM", "DB"]
+        blocks: list[str] = []
+        missing = False
+        for dom in domains:
+            info = duty_mod.duty_status(dom)  # one sheet read per domain
+            head = f"【{dom}】→ {info['label']}"
+            if info.get("error"):
+                blocks.append(f"{head}\n  ⚠️ {info['error']}")
+                continue
+            if not info.get("resolved"):
+                blocks.append(f"{head}\n  (nobody on duty / could not parse names)")
+                continue
+            lines = [head]
+            for r in info["resolved"]:
+                if r["open_id"]:
+                    lines.append(f"  ✅ {r['name']} → {r['open_id']}")
+                else:
+                    missing = True
+                    lines.append(f"  ⚠️ {r['name']} → no open_id (will show as plain text)")
+            blocks.append("\n".join(lines))
+        tail = (
+            "\n\nSome names have no open_id — run: /secret1 @thatperson"
+            if missing
+            else "\n\nAll duty names resolve to an open_id ✅"
+        )
+        self.lark.reply_text(message_id, "Duty today:\n" + "\n\n".join(blocks) + tail)
+
     # -------------------------------------------------------------- /secret1
     def handle_secret1(self, message_id: str, mentions: list) -> None:
         """Reply with the open_id of every @-mentioned person and remember them,

@@ -188,12 +188,44 @@ def _norm(name: str) -> str:
     return re.sub(r"\s+", "", (name or "").lower())
 
 
+def resolve_openid(name: str, mapping: dict[str, str] | None = None) -> str | None:
+    """Find the open_id for a duty name.
+
+    The roster spells names as in the spreadsheet ("Kai Xuan") while /secret1
+    stores Lark display names ("KaiXuan Ng"), so fall back to a containment
+    match. Requires >=4 chars to avoid short-name collisions.
+    """
+    mapping = load_openids() if mapping is None else mapping
+    target = _norm(name)
+    if not target:
+        return None
+    by_norm = {_norm(k): v for k, v in mapping.items()}
+    if target in by_norm:
+        return by_norm[target]
+    if len(target) >= 4:
+        for key, oid in by_norm.items():
+            if len(key) >= 4 and (target in key or key in target):
+                return oid
+    return None
+
+
 def mention(names: list[str]) -> str:
     """Render duty names as Lark @-mentions where an open_id is known."""
     mapping = load_openids()
-    by_norm = {_norm(k): v for k, v in mapping.items()}
     out = []
     for n in names:
-        oid = by_norm.get(_norm(n))
+        oid = resolve_openid(n, mapping)
         out.append(f'<at id="{oid}"></at>' if oid else n)
     return ", ".join(out) if out else "team"
+
+
+def duty_status(domain: str | None = None) -> dict[str, Any]:
+    """Duty for a domain plus whether each name resolves to an open_id.
+    Used by /duty — deliberately does NOT emit @-tags, so checking it doesn't
+    ping anyone."""
+    info = get_duty(domain)
+    mapping = load_openids()
+    info["resolved"] = [
+        {"name": n, "open_id": resolve_openid(n, mapping)} for n in info.get("names") or []
+    ]
+    return info

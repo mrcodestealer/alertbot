@@ -109,6 +109,11 @@ def on_message(data: P2ImMessageReceiveV1) -> None:
                 lark_client.reply_text(message_id, "Couldn't read your open_id from this message.")
             return
 
+        # /duty [DOMAIN] — who is on duty and whether each name has an open_id.
+        if tokens and tokens[0] == "/duty":
+            _executor.submit(commands.handle_duty, message_id, " ".join(tokens[1:]))
+            return
+
         # /secret1 @a @b — reply with their open_ids (and remember them so duty
         # names can be @-tagged in report cards).
         if "/secret1" in tokens:
