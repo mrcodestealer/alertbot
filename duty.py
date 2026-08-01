@@ -219,6 +219,42 @@ def mention(names: list[str]) -> str:
     return ", ".join(out) if out else "team"
 
 
+def roster() -> dict[str, list[str]]:
+    """Everyone who can ever appear on duty, read from the copied dutybot
+    modules — so this list follows the source of truth, not a hardcoded copy.
+
+    Only the BACKEND section of the SRE roster is included: the frontend team
+    isn't tagged for platform alerts.
+    """
+    out: dict[str, list[str]] = {"sre_backend": [], "db": []}
+    try:
+        sre_mod, db_mod = _load_modules()
+        for title, members in getattr(sre_mod, "SRE_TEAMS", []):
+            if (SRE_SECTION or "BACKEND").upper() in str(title).upper():
+                out["sre_backend"] = list(members)
+        out["db"] = [m.get("name", "") for m in getattr(db_mod, "TARGET_DUTY", []) if m.get("name")]
+    except Exception:
+        log.exception("Could not read duty rosters")
+    return out
+
+
+def roster_coverage() -> dict[str, Any]:
+    """Check every roster member against the saved open_id map."""
+    mapping = load_openids()
+    teams = roster()
+    result: dict[str, Any] = {"teams": {}, "missing": []}
+    for team, names in teams.items():
+        rows = []
+        for n in names:
+            oid = resolve_openid(n, mapping)
+            rows.append({"name": n, "open_id": oid})
+            if not oid:
+                result["missing"].append(n)
+        result["teams"][team] = rows
+    result["saved"] = len(mapping)
+    return result
+
+
 def duty_status(domain: str | None = None) -> dict[str, Any]:
     """Duty for a domain plus whether each name resolves to an open_id.
     Used by /duty — deliberately does NOT emit @-tags, so checking it doesn't

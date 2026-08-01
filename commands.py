@@ -111,6 +111,34 @@ class CommandHandler:
         """
         import duty as duty_mod  # local import
 
+        # "/duty all" -> check the WHOLE roster, not just who is on duty today.
+        if arg.strip().lower() in ("all", "roster", "check"):
+            cov = duty_mod.roster_coverage()
+            labels = {"sre_backend": "SRE Backend Team", "db": "DB Team"}
+            blocks = []
+            for team, rows in cov["teams"].items():
+                if not rows:
+                    continue
+                lines = [f"【{labels.get(team, team)}】"]
+                for r in rows:
+                    lines.append(
+                        f"  ✅ {r['name']}" if r["open_id"] else f"  ❌ {r['name']} — missing open_id"
+                    )
+                blocks.append("\n".join(lines))
+            missing = cov["missing"]
+            tail = (
+                "\n\n❌ Missing (" + str(len(missing)) + "): " + ", ".join(missing)
+                + "\nRun: /secret1 " + " ".join(f"@{m}" for m in missing[:6])
+                if missing
+                else "\n\n✅ Everyone on the roster has an open_id."
+            )
+            self.lark.reply_text(
+                message_id,
+                f"Duty roster coverage ({cov['saved']} open_id(s) saved):\n"
+                + "\n\n".join(blocks) + tail,
+            )
+            return
+
         domains = [arg.strip().upper()] if arg.strip() else ["PLATFORM", "DB"]
         blocks: list[str] = []
         missing = False
