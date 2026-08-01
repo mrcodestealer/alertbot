@@ -104,14 +104,16 @@ class Config:
     deploy_git_dir: str = os.getenv("DEPLOY_GIT_DIR", str(BASE_DIR))
     # Comma-separated Lark open_ids allowed to deploy. Empty = any DM sender
     # (a warning is logged). Get your open_id by DMing the bot "/whoami".
-    # --- Duty lookup (copied verbatim from dutybot: sre_Duty.py / db_duty.py) ---
-    # Those modules read APP_ID / APP_SECRET / OSE_* straight from the environment,
-    # and the duty spreadsheet is shared with the DUTYBOT Lark app — a different
-    # app from this bot — so its credentials are kept separately here.
+    # --- Duty lookup (logic copied verbatim from dutybot: sre_Duty.py / db_duty.py) ---
+    # Those modules read APP_ID / APP_SECRET from the environment. This bot's own
+    # Lark app can read the duty spreadsheet, so they default to LARK_APP_ID /
+    # LARK_APP_SECRET — no second set of credentials needed. Set APP_ID/APP_SECRET
+    # explicitly only if you ever need a different app for the sheet.
     duty_enabled: bool = _bool("DUTY_ENABLED", True)
-    duty_app_id: str = os.getenv("APP_ID", "")
-    duty_app_secret: str = os.getenv("APP_SECRET", "")
-    ose_spreadsheet_token: str = os.getenv("OSE_SPREADSHEET_TOKEN", "")
+    duty_app_id: str = os.getenv("APP_ID") or os.getenv("LARK_APP_ID", "")
+    duty_app_secret: str = os.getenv("APP_SECRET") or os.getenv("LARK_APP_SECRET", "")
+    # Which spreadsheet holds the roster (document identifiers, not credentials).
+    ose_spreadsheet_token: str = os.getenv("OSE_SPREADSHEET_TOKEN", "O4Dfw4DVTiPpFukn801l5z3WgMd")
     ose_sheet_id: str = os.getenv("OSE_SHEET_ID", "AS33r7")
     # Chat that "Report to SRE" posts into (defaults to the alert chat).
     report_chat_id: str = os.getenv("REPORT_CHAT_ID", "") or os.getenv("LARK_ALERT_CHAT_ID", "")
