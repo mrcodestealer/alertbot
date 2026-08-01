@@ -110,27 +110,20 @@ def new_alert_card(
 ) -> dict[str, Any]:
     """Card for a newly-detected firing alert."""
     title = alert.get("alert_rule") or alert.get("summary") or f"Alert #{alert.get('id')}"
+    # Compact card: ID + screenshot + SOP. The alert's instance/description are
+    # still parsed by the knowledge base (matching + condition checks) — they're
+    # just not rendered, because the screenshot already shows them.
     elements: list[dict[str, Any]] = [
         {
             "tag": "div",
-            "fields": [
-                _field("Severity", f"{_emoji(alert)} {alert.get('severity', '-')}"),
-                _field("Status / 状态", alert.get("status", "-")),
-                _field("Domain", alert.get("domain", "-")),
-                _field("Env", alert.get("env", "-")),
-                _field("Alert ID", alert.get("id", "-")),
-                _field("Created / 创建时间", alert.get("created_at", "-")),
-            ],
+            "text": {
+                "tag": "lark_md",
+                "content": f"{_emoji(alert)} **{alert.get('severity', '-')}** · Alert ID `{alert.get('id', '-')}`",
+            },
         },
-        _divider(),
-        {"tag": "div", "text": {"tag": "lark_md", "content": f"**Instance / 实例**\n{_clip(alert.get('instance'), 300)}"}},
-        {"tag": "div", "text": {"tag": "lark_md", "content": f"**Description / 详细描述**\n{_clip(alert.get('description'))}"}},
     ]
 
-    elements.extend(sop_elements(kb_verdict))
-
     if image_key:
-        elements.append(_divider())
         elements.append(
             {
                 "tag": "img",
@@ -139,6 +132,14 @@ def new_alert_card(
                 "mode": "fit_horizontal",
             }
         )
+    else:
+        # No screenshot: without it there'd be nothing identifying WHICH instance
+        # fired, so fall back to the one-line instance.
+        elements.append(
+            {"tag": "div", "text": {"tag": "lark_md", "content": f"**实例 / Instance**\n{_clip(alert.get('instance'), 300)}"}}
+        )
+
+    elements.extend(sop_elements(kb_verdict))
 
     elements.append(_divider())
     elements.append(
