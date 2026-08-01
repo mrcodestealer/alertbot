@@ -49,6 +49,9 @@ def capture_alert_detail(alert_id: int | str) -> str | None:
                 panel = page.locator(_MODAL_SELECTOR).first
                 panel.wait_for(state="visible", timeout=15000)
                 page.wait_for_timeout(900)  # let modal content + fonts settle
+                _fit_viewport(page)         # make 90vh big enough for the content
+                _expand_modal(page)         # then drop any remaining height caps
+                page.wait_for_timeout(400)  # let the relayout settle
                 panel.screenshot(path=out_path)
                 log.info("Captured detail screenshot for alert %s -> %s", alert_id, out_path)
                 return out_path
@@ -61,6 +64,94 @@ def capture_alert_detail(alert_id: int | str) -> str | None:
     except Exception:  # pragma: no cover - defensive; never break the pipeline
         log.exception("Screenshot capture failed for alert %s", alert_id)
         return None
+
+
+_EXPAND_JS = """
+() => {
+  const panel = document.querySelector('div.fixed.inset-0.z-50 div.rounded-lg.shadow-xl');
+  if (!panel) return false;
+  // The overlay is fixed to the viewport, which caps how tall the panel can be.
+  const overlay = panel.closest('div.fixed.inset-0.z-50');
+  if (overlay) {
+    overlay.style.position = 'absolute';
+    overlay.style.height = 'auto';
+    overlay.style.minHeight = '0';
+    overlay.style.alignItems = 'flex-start';
+  }
+  // Let the panel itself grow past max-h-[90vh].
+  panel.style.maxHeight = 'none';
+  panel.style.height = 'auto';
+  panel.style.overflow = 'visible';
+  // Grow every clipped descendant to its full content height. Setting an
+  // explicit height (rather than just overflow:visible) is what matters: with
+  // overflow:visible alone the text spills OUTSIDE the panel's box and an
+  // element screenshot, which captures only that box, still cuts it off.
+  // Repeat a few passes because growing a child reflows its parents.
+  for (let pass = 0; pass < 5; pass++) {
+    let changed = false;
+    panel.querySelectorAll('*').forEach((el) => {
+      if (el.scrollHeight > el.clientHeight + 2) {
+        el.style.maxHeight = 'none';
+        el.style.height = el.scrollHeight + 'px';
+        el.style.overflowY = 'visible';
+        changed = true;
+      }
+    });
+    if (!changed) break;
+  }
+  document.body.style.overflow = 'visible';
+  return Math.round(panel.getBoundingClientRect().height);
+}
+"""
+
+
+_MEASURE_JS = """
+() => {
+  const panel = document.querySelector('div.fixed.inset-0.z-50 div.rounded-lg.shadow-xl');
+  if (!panel) return 0;
+  // The panel is capped at max-h-[90vh]; its CONTENT can be much taller.
+  let needed = panel.scrollHeight;
+  panel.querySelectorAll('*').forEach((el) => {
+    needed = Math.max(needed, el.scrollHeight);
+  });
+  return Math.ceil(needed);
+}
+"""
+
+
+def _fit_viewport(page) -> None:
+    """Grow the viewport until the modal's 90vh cap no longer clips the content.
+
+    The panel is ``max-h-[90vh]``, so the only reliable way to show a long
+    description is to make the viewport tall enough that 90vh exceeds it.
+    """
+    try:
+        needed = int(page.evaluate(_MEASURE_JS) or 0)
+    except Exception:
+        return
+    if needed <= 0:
+        return
+    # +header/padding, then undo the 90vh factor, and clamp to something sane.
+    target = int(min(max((needed + 260) / 0.9, 960), 6000))
+    current = (page.viewport_size or {}).get("height", 0)
+    if target > current:
+        log.debug("Growing viewport %s -> %spx for %spx of content", current, target, needed)
+        page.set_viewport_size({"width": 1280, "height": target})
+        page.wait_for_timeout(400)
+
+
+def _expand_modal(page) -> None:
+    """Remove the modal's height cap and inner scrollbars.
+
+    The detail panel is ``max-h-[90vh] overflow-hidden`` with a scrolling body,
+    so a long description (e.g. a service table) is cut off at the viewport edge.
+    Un-clipping it first means the element screenshot captures the whole thing.
+    """
+    try:
+        height = page.evaluate(_EXPAND_JS)
+        log.debug("Expanded detail modal to %spx", height)
+    except Exception:
+        log.warning("Could not expand the detail modal; screenshot may be clipped", exc_info=True)
 
 
 def _login(page) -> None:
