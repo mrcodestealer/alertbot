@@ -151,7 +151,7 @@ def new_alert_card(
             "actions": [
                 {
                     "tag": "button",
-                    "text": {"tag": "plain_text", "content": "📣 Report to SRE"},
+                    "text": {"tag": "plain_text", "content": CONFIG.report_button_text},
                     "type": "primary",
                     "value": {
                         "action": "report_sre",

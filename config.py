@@ -118,8 +118,10 @@ class Config:
     # Which spreadsheet holds the roster (document identifiers, not credentials).
     ose_spreadsheet_token: str = os.getenv("OSE_SPREADSHEET_TOKEN", "O4Dfw4DVTiPpFukn801l5z3WgMd")
     ose_sheet_id: str = os.getenv("OSE_SHEET_ID", "AS33r7")
-    # Chat that "Report to SRE" posts into (defaults to the alert chat).
+    # Chat that the report button posts into (defaults to the alert chat).
     report_chat_id: str = os.getenv("REPORT_CHAT_ID", "") or os.getenv("LARK_ALERT_CHAT_ID", "")
+    # Label on the report button.
+    report_button_text: str = os.getenv("REPORT_BUTTON_TEXT", "Report to OSE & SRE group(testing)")
     # People to never tag (leavers). Kept here rather than editing the copied
     # dutybot modules, so those stay re-copyable. Comma-separated.
     duty_exclude: list[str] = field(
