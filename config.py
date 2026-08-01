@@ -94,6 +94,9 @@ class Config:
     reaction_done: str = os.getenv("REACTION_DONE", "DONE")
     reaction_error: str = os.getenv("REACTION_ERROR", "ERROR")
     check_command: str = os.getenv("CHECK_COMMAND", "/check").strip().lower()
+    # Max entries listed per /check section. High enough to show everything in
+    # practice; it only exists because Lark rejects an over-large card.
+    check_max_per_section: int = _int("CHECK_MAX_PER_SECTION", 60)
 
     # --- Self-deploy via DM (git pull + restart service) ---
     # OFF by default: this executes shell commands on the server.

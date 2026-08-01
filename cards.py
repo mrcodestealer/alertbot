@@ -7,6 +7,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from config import CONFIG
+
 # Map dashboard severity (mixed case) -> Lark header template colour.
 _SEVERITY_COLOR = {
     "critical": "red",
@@ -390,12 +392,17 @@ def check_sop_card(
     3. in the doc but not firing right now."""
     elements: list[dict[str, Any]] = []
 
+    # Cap per section. Lark rejects an over-large card outright, so this is a
+    # safety net rather than a display preference — raise CHECK_MAX_PER_SECTION
+    # if you have more entries than this.
+    cap = max(1, CONFIG.check_max_per_section)
+
     def section(title: str, body_lines: list[str], empty: str, sep: str = "\n\n") -> None:
         elements.append({"tag": "div", "text": {"tag": "lark_md", "content": title}})
         if body_lines:
-            body = sep.join(body_lines[:15])
-            if len(body_lines) > 15:
-                body += f"{sep}… +{len(body_lines) - 15} more"
+            body = sep.join(body_lines[:cap])
+            if len(body_lines) > cap:
+                body += f"{sep}… +{len(body_lines) - cap} more"
             elements.append({"tag": "div", "text": {"tag": "lark_md", "content": body}})
         else:
             elements.append({"tag": "div", "text": {"tag": "lark_md", "content": f"_{empty}_"}})
