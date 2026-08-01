@@ -115,6 +115,15 @@ class Config:
     ose_sheet_id: str = os.getenv("OSE_SHEET_ID", "AS33r7")
     # Chat that "Report to SRE" posts into (defaults to the alert chat).
     report_chat_id: str = os.getenv("REPORT_CHAT_ID", "") or os.getenv("LARK_ALERT_CHAT_ID", "")
+    # People to never tag (leavers). Kept here rather than editing the copied
+    # dutybot modules, so those stay re-copyable. Comma-separated.
+    duty_exclude: list[str] = field(
+        default_factory=lambda: [
+            tok
+            for s in os.getenv("DUTY_EXCLUDE", "").split(",")
+            if (tok := s.split("#", 1)[0].strip())
+        ]
+    )
     # name -> open_id map collected via /secret1, used to @-tag the duty person.
     duty_openid_file: Path = field(
         default_factory=lambda: BASE_DIR / os.getenv("DUTY_OPENID_FILE", "duty_openids.json")

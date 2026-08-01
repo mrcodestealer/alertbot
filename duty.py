@@ -151,7 +151,12 @@ def get_duty(domain: str | None = None) -> dict[str, Any]:
             text = sre_mod.get_sre_today_duty()
             section = SRE_SECTION or None
         result["text"] = text or ""
-        result["names"] = parse_names(result["text"], only_section=section)
+        parsed = parse_names(result["text"], only_section=section)
+        dropped = [n for n in parsed if is_excluded(n)]
+        if dropped:
+            log.info("Excluding %s from duty (DUTY_EXCLUDE)", ", ".join(dropped))
+        result["names"] = [n for n in parsed if not is_excluded(n)]
+        result["excluded"] = dropped
         if not result["names"]:
             log.warning("No duty names parsed for domain=%r team=%s: %r", domain, team, text[:200])
     except Exception as e:  # noqa: BLE001
@@ -186,6 +191,16 @@ def remember_openids(pairs: dict[str, str]) -> dict[str, str]:
 
 def _norm(name: str) -> str:
     return re.sub(r"\s+", "", (name or "").lower())
+
+
+def is_excluded(name: str) -> bool:
+    """True for people who must never be tagged (e.g. left the company).
+
+    Configured via DUTY_EXCLUDE so the copied dutybot modules stay untouched and
+    can be re-copied when dutybot changes.
+    """
+    n = _norm(name)
+    return bool(n) and any(_norm(x) == n for x in CONFIG.duty_exclude)
 
 
 def resolve_openid(name: str, mapping: dict[str, str] | None = None) -> str | None:
@@ -231,8 +246,12 @@ def roster() -> dict[str, list[str]]:
         sre_mod, db_mod = _load_modules()
         for title, members in getattr(sre_mod, "SRE_TEAMS", []):
             if (SRE_SECTION or "BACKEND").upper() in str(title).upper():
-                out["sre_backend"] = list(members)
-        out["db"] = [m.get("name", "") for m in getattr(db_mod, "TARGET_DUTY", []) if m.get("name")]
+                out["sre_backend"] = [m for m in members if not is_excluded(m)]
+        out["db"] = [
+            m.get("name", "")
+            for m in getattr(db_mod, "TARGET_DUTY", [])
+            if m.get("name") and not is_excluded(m.get("name", ""))
+        ]
     except Exception:
         log.exception("Could not read duty rosters")
     return out
