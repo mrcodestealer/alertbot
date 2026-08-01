@@ -110,12 +110,20 @@ class CommandHandler:
         ok = False
         try:
             firing, resolved = self._collect()
-            card = cards.check_summary_card(
-                firing,
-                resolved,
-                requested_by=requested_by,
-                severity_label=CONFIG.watch_severity,
-            )
+            if self.kb is not None and self.kb.entries:
+                undoc, doc, idle = self._split_by_sop(firing)
+                card = cards.check_sop_card(
+                    undoc, doc, idle, resolved,
+                    requested_by=requested_by,
+                    severity_label=CONFIG.watch_severity,
+                )
+            else:
+                # No knowledge base -> fall back to the plain firing/resolved view.
+                card = cards.check_summary_card(
+                    firing, resolved,
+                    requested_by=requested_by,
+                    severity_label=CONFIG.watch_severity,
+                )
             ok = self.lark.reply_card(message_id, card, in_thread=True)
         except Exception:
             log.exception("/check failed")
@@ -135,6 +143,31 @@ class CommandHandler:
             self.lark.add_reaction(message_id, CONFIG.reaction_done if ok else CONFIG.reaction_error)
         except Exception:
             log.exception("Failed to add final reaction")
+
+    def _split_by_sop(self, firing: list[dict]) -> tuple[list[dict], list[dict], list[dict]]:
+        """Partition by SOP coverage:
+          1. firing but NOT in the doc, 2. firing and in the doc,
+          3. documented alerts that are not firing right now.
+        """
+        undocumented, documented = [], []
+        matched_titles: set[str] = set()
+        for alert in firing:
+            verdict = self.kb.lookup(alert)
+            item = {"alert": alert, "verdict": verdict}
+            if verdict.get("in_docs"):
+                documented.append(item)
+                title = (verdict.get("entry") or {}).get("alert_title")
+                if title:
+                    matched_titles.add(title)
+            else:
+                undocumented.append(item)
+
+        idle = [e for e in self.kb.entries if e.get("alert_title") not in matched_titles]
+        # Most important first within each firing group.
+        rank = {"high": 0, "medium": 1, "low": 2, "unknown": 0}
+        documented.sort(key=lambda i: rank.get(str(i["verdict"].get("importance")).lower(), 3))
+        idle.sort(key=lambda e: rank.get(str(e.get("importance")).lower(), 3))
+        return undocumented, documented, idle
 
     def _collect(self) -> tuple[list[dict], list[dict]]:
         """Return (still_firing, resolved) — read-only.

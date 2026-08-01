@@ -279,6 +279,99 @@ def _alert_line(alert: dict[str, Any]) -> str:
     return f"{sev} `#{aid}` **{rule}**\n   {inst}"
 
 
+def _sop_alert_line(item: dict[str, Any]) -> str:
+    """One line for a firing alert in the /check card, with its SOP verdict."""
+    alert = item["alert"]
+    verdict = item.get("verdict") or {}
+    entry = verdict.get("entry") or {}
+    sev = _emoji(alert)
+    aid = alert.get("id", "?")
+    rule = alert.get("alert_rule") or alert.get("summary") or "-"
+    line = f"{sev} `#{aid}` **{rule}**"
+    if verdict.get("in_docs"):
+        badge = _IMPORTANCE_BADGE.get(str(verdict.get("importance", "medium")).lower(), "")
+        line += f"\n   {badge} — {_clip(verdict.get('action') or entry.get('summary'), 120)}"
+    else:
+        line += f"\n   ❓ not documented → treat as **IMPORTANT**"
+    return line
+
+
+def check_sop_card(
+    firing_undocumented: list[dict[str, Any]],
+    firing_documented: list[dict[str, Any]],
+    idle_documented: list[dict[str, Any]],
+    resolved: list[dict[str, Any]] | None = None,
+    *,
+    requested_by: str | None = None,
+    severity_label: str = "all",
+) -> dict[str, Any]:
+    """/check summary grouped by SOP coverage:
+    1. firing but NOT in the SOP doc, 2. firing and found in the doc,
+    3. in the doc but not firing right now."""
+    elements: list[dict[str, Any]] = []
+
+    def section(title: str, body_lines: list[str], empty: str, sep: str = "\n\n") -> None:
+        elements.append({"tag": "div", "text": {"tag": "lark_md", "content": title}})
+        if body_lines:
+            body = sep.join(body_lines[:15])
+            if len(body_lines) > 15:
+                body += f"{sep}… +{len(body_lines) - 15} more"
+            elements.append({"tag": "div", "text": {"tag": "lark_md", "content": body}})
+        else:
+            elements.append({"tag": "div", "text": {"tag": "lark_md", "content": f"_{empty}_"}})
+
+    # 1) firing, undocumented — most urgent
+    section(
+        f"**⚠️ 告警中 · 不在文档 / Firing — NOT in SOP doc ({len(firing_undocumented)})**",
+        [_sop_alert_line(i) for i in firing_undocumented],
+        "None — every firing alert is documented 🎉",
+    )
+    elements.append(_divider())
+
+    # 2) firing, documented
+    section(
+        f"**📕 告警中 · 已记录 / Firing — found in SOP doc ({len(firing_documented)})**",
+        [_sop_alert_line(i) for i in firing_documented],
+        "None firing right now",
+    )
+    elements.append(_divider())
+
+    # 3) documented but quiet
+    section(
+        f"**📗 文档已记录 · 目前无告警 / In SOP doc — not firing now ({len(idle_documented)})**",
+        [
+            f"{_IMPORTANCE_BADGE.get(str(e.get('importance','medium')).lower(),'')} {_clip(e.get('alert_title'), 70)}"
+            for e in idle_documented
+        ],
+        "SOP doc is empty — run /kb refresh",
+        sep="\n",  # one line each, keep it compact
+    )
+
+    if resolved:
+        elements.append(_divider())
+        section(
+            f"**✅ 已恢复 / Recently resolved ({len(resolved)})**",
+            [_alert_line(a) for a in resolved],
+            "None recently",
+        )
+
+    note = f"MonitorFlow · AlertBot /check · severity={severity_label}"
+    if requested_by:
+        note += f" · by {requested_by}"
+    elements.append(_divider())
+    elements.append({"tag": "note", "elements": [{"tag": "plain_text", "content": note}]})
+
+    header_color = "red" if firing_undocumented else ("orange" if firing_documented else "green")
+    return {
+        "config": {"wide_screen_mode": True},
+        "header": {
+            "title": {"tag": "plain_text", "content": "📋 Alert Check / 告警检查"},
+            "template": header_color,
+        },
+        "elements": elements,
+    }
+
+
 def check_summary_card(
     firing: list[dict[str, Any]],
     resolved: list[dict[str, Any]],
