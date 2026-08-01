@@ -86,9 +86,11 @@ class CommandHandler:
 
         info = duty_mod.get_duty(domain)
         log.info(
-            "Report alert #%s (domain=%s) -> %s duty=%s by %s",
-            alert_id, domain, info["label"], info["names"], reporter,
+            "Report alert #%s domain=%s -> chat=%s team=%s names=%s error=%s by=%s",
+            alert_id, domain, chat, info["label"], info["names"], info.get("error"), reporter,
         )
+        if info.get("error"):
+            log.error("Duty lookup failed for report of #%s: %s", alert_id, info["error"])
         card = cards.report_card(
             rule=rule,
             alert_id=alert_id,
@@ -99,8 +101,14 @@ class CommandHandler:
             duty_error=info.get("error"),
             reported_by=reporter,
         )
-        if not self.lark.send_card(chat, card):
-            log.error("Failed to post report card for alert #%s", alert_id)
+        msg_id = self.lark.send_card(chat, card)
+        if msg_id:
+            log.info("Report card for #%s posted to %s (message_id=%s)", alert_id, chat, msg_id)
+        else:
+            log.error(
+                "FAILED to post report card for #%s to chat %s — is the bot a member of that chat?",
+                alert_id, chat,
+            )
 
     # ----------------------------------------------------------------- /duty
     def handle_duty(self, message_id: str, arg: str = "") -> None:

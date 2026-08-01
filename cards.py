@@ -198,7 +198,7 @@ def report_card(
             "tag": "div",
             "text": {
                 "tag": "lark_md",
-                "content": f"🔴 **{_clip(rule, 150)}**\nAlert ID `{alert_id}` · Domain `{domain or '-'}`",
+                "content": f"Alert ID `{alert_id}` · Domain `{domain or '-'}` · {duty_label}",
             },
         }
     ]
@@ -215,8 +215,9 @@ def report_card(
 
     if duty_error:
         greeting = (
-            f"⚠️ Could not look up the {duty_label} roster ({_clip(duty_error, 120)}).\n"
-            "Kindly check this alert, thank you."
+            f"⚠️ **Could not reach the {duty_label} roster** — {_clip(duty_error, 160)}\n"
+            "Kindly check this alert, thank you.\n"
+            "_(fix: check APP_ID / APP_SECRET / OSE_SPREADSHEET_TOKEN in .env, then `/duty`)_"
         )
     else:
         greeting = f"Hi {duty_mention} kindly check this alert thank you"
@@ -230,7 +231,8 @@ def report_card(
     return {
         "config": {"wide_screen_mode": True},
         "header": {
-            "title": {"tag": "plain_text", "content": f"📣 Reported to {duty_label}"},
+            # Title is the alert name so the SRE group sees what fired at a glance.
+            "title": {"tag": "plain_text", "content": _clip(rule, 100)},
             "template": "red",
         },
         "elements": elements,

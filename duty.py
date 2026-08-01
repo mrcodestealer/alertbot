@@ -151,6 +151,17 @@ def get_duty(domain: str | None = None) -> dict[str, Any]:
             text = sre_mod.get_sre_today_duty()
             section = SRE_SECTION or None
         result["text"] = text or ""
+        # sre_Duty/db_duty report failures by RETURNING a string (e.g.
+        # "❌ Failed to read sheet data"), not by raising — so detect that,
+        # otherwise it looks like "nobody on duty".
+        stripped = (text or "").strip()
+        if not stripped:
+            result["error"] = "duty lookup returned nothing"
+            return result
+        if stripped.startswith("❌") or "Failed to read sheet" in stripped:
+            result["error"] = stripped.lstrip("❌ ").strip()[:200]
+            return result
+
         parsed = parse_names(result["text"], only_section=section)
         dropped = [n for n in parsed if is_excluded(n)]
         if dropped:
@@ -158,7 +169,10 @@ def get_duty(domain: str | None = None) -> dict[str, Any]:
         result["names"] = [n for n in parsed if not is_excluded(n)]
         result["excluded"] = dropped
         if not result["names"]:
-            log.warning("No duty names parsed for domain=%r team=%s: %r", domain, team, text[:200])
+            log.warning("No duty names parsed for domain=%r team=%s: %r", domain, team, text[:300])
+            result["error"] = (
+                f"no {'BACKEND ' if section else ''}duty names found in today's roster"
+            )
     except Exception as e:  # noqa: BLE001
         log.exception("Duty lookup failed for domain=%r", domain)
         result["error"] = str(e)[:200]
