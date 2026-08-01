@@ -42,7 +42,11 @@ DOMAIN_TEAM = {
 }
 DEFAULT_TEAM = "sre"
 
-TEAM_LABEL = {"sre": "Platform SRE duty", "db": "DB duty"}
+TEAM_LABEL = {"sre": "Platform SRE duty (Backend Team)", "db": "DB duty"}
+
+# Only this section of the SRE roster is tagged for platform alerts — the
+# frontend team does not handle them. Blank = tag everyone on the roster.
+SRE_SECTION = os.getenv("SRE_DUTY_SECTION", "BACKEND").strip()
 
 _BULLET_RE = re.compile(r"^\s*[•\-\*]\s*(.+?)\s*$")
 
@@ -89,12 +93,38 @@ def _clean_name(line: str) -> str | None:
     return name or None
 
 
-def parse_names(duty_text: str) -> list[str]:
-    """Extract the on-duty names from a formatted duty block."""
+def parse_names(duty_text: str, *, only_section: str | None = None) -> list[str]:
+    """Extract the on-duty names from a formatted duty block.
+
+    sre_Duty groups its output under team headings::
+
+        📅 SRE Duty – 01/08/2026
+        BACKEND TEAM (FPMS, PMS, ...)
+        • Wei Siong 📞601...
+        • Clarence 📞601...
+
+        FRONTEND TEAM (FRONTEND, POSTHOG, ...)
+        • Alex Tai 📞601...
+
+    ``only_section`` keeps just the names under a heading starting with that
+    prefix (e.g. "BACKEND"), so platform alerts don't tag the frontend team.
+    Names listed with no heading are skipped when a section filter is active —
+    better to under-tag than to page the wrong team.
+    """
     names: list[str] = []
+    current: str | None = None
+    want = (only_section or "").strip().upper()
     for line in (duty_text or "").splitlines():
         name = _clean_name(line)
-        if name and name not in names:
+        if name is None:
+            stripped = line.strip()
+            # A non-bullet, non-empty line that isn't the date title is a heading.
+            if stripped and not stripped.startswith("📅"):
+                current = stripped
+            continue
+        if want and not (current or "").upper().startswith(want):
+            continue
+        if name not in names:
             names.append(name)
     return names
 
@@ -116,10 +146,12 @@ def get_duty(domain: str | None = None) -> dict[str, Any]:
         sre_mod, db_mod = _load_modules()
         if team == "db":
             text = db_mod.get_db_day_duty(datetime.now().date())
+            section = None  # DB roster has no team sections
         else:
             text = sre_mod.get_sre_today_duty()
+            section = SRE_SECTION or None
         result["text"] = text or ""
-        result["names"] = parse_names(result["text"])
+        result["names"] = parse_names(result["text"], only_section=section)
         if not result["names"]:
             log.warning("No duty names parsed for domain=%r team=%s: %r", domain, team, text[:200])
     except Exception as e:  # noqa: BLE001
