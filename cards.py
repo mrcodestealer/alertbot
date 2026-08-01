@@ -141,6 +141,28 @@ def new_alert_card(
 
     elements.extend(sop_elements(kb_verdict))
 
+    # "Report to SRE" button -> card.action.trigger -> posts to the SRE chat.
+    elements.append(_divider())
+    elements.append(
+        {
+            "tag": "action",
+            "actions": [
+                {
+                    "tag": "button",
+                    "text": {"tag": "plain_text", "content": "📣 Report to SRE"},
+                    "type": "primary",
+                    "value": {
+                        "action": "report_sre",
+                        "alert_id": str(alert.get("id", "")),
+                        "domain": alert.get("domain") or "",
+                        "rule": _clip(alert.get("alert_rule") or alert.get("summary"), 120),
+                        "image_key": image_key or "",
+                    },
+                }
+            ],
+        }
+    )
+
     elements.append(_divider())
     elements.append(
         {
@@ -154,6 +176,62 @@ def new_alert_card(
         "header": {
             "title": {"tag": "plain_text", "content": f"🔥 {title}"},
             "template": _color(alert),
+        },
+        "elements": elements,
+    }
+
+
+def report_card(
+    *,
+    rule: str,
+    alert_id: str,
+    domain: str,
+    duty_label: str,
+    duty_mention: str,
+    image_key: str | None = None,
+    duty_error: str | None = None,
+    reported_by: str | None = None,
+) -> dict[str, Any]:
+    """Card posted to the SRE chat when someone presses 'Report to SRE'."""
+    elements: list[dict[str, Any]] = [
+        {
+            "tag": "div",
+            "text": {
+                "tag": "lark_md",
+                "content": f"🔴 **{_clip(rule, 150)}**\nAlert ID `{alert_id}` · Domain `{domain or '-'}`",
+            },
+        }
+    ]
+
+    if image_key:
+        elements.append(
+            {
+                "tag": "img",
+                "img_key": image_key,
+                "alt": {"tag": "plain_text", "content": "alert detail screenshot"},
+                "mode": "fit_horizontal",
+            }
+        )
+
+    if duty_error:
+        greeting = (
+            f"⚠️ Could not look up the {duty_label} roster ({_clip(duty_error, 120)}).\n"
+            "Kindly check this alert, thank you."
+        )
+    else:
+        greeting = f"Hi {duty_mention} kindly check this alert thank you"
+    elements.append({"tag": "div", "text": {"tag": "lark_md", "content": greeting}})
+
+    note = f"MonitorFlow · AlertBot 📣 reported to {duty_label}"
+    if reported_by:
+        note += f" · by {reported_by}"
+    elements.append({"tag": "note", "elements": [{"tag": "plain_text", "content": note}]})
+
+    return {
+        "config": {"wide_screen_mode": True},
+        "header": {
+            "title": {"tag": "plain_text", "content": f"📣 Reported to {duty_label}"},
+            "template": "red",
         },
         "elements": elements,
     }

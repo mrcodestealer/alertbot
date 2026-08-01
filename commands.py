@@ -68,6 +68,67 @@ class CommandHandler:
         self.state = state
         self.kb = kb  # KnowledgeBase | None
 
+    # --------------------------------------------------- "Report to SRE" button
+    def handle_report(self, value: dict, reporter: str | None = None) -> None:
+        """Card-button action: post the alert to the SRE chat, tagging the duty
+        person for the alert's Domain."""
+        import duty as duty_mod  # local import: pulls in the copied dutybot modules
+
+        alert_id = str(value.get("alert_id") or "")
+        domain = value.get("domain") or ""
+        rule = value.get("rule") or f"Alert #{alert_id}"
+        image_key = value.get("image_key") or None
+
+        chat = CONFIG.report_chat_id or CONFIG.lark_alert_chat_id
+        if not chat:
+            log.error("Report requested but no REPORT_CHAT_ID / LARK_ALERT_CHAT_ID configured")
+            return
+
+        info = duty_mod.get_duty(domain)
+        log.info(
+            "Report alert #%s (domain=%s) -> %s duty=%s by %s",
+            alert_id, domain, info["label"], info["names"], reporter,
+        )
+        card = cards.report_card(
+            rule=rule,
+            alert_id=alert_id,
+            domain=domain,
+            duty_label=info["label"],
+            duty_mention=duty_mod.mention(info["names"]),
+            image_key=image_key,
+            duty_error=info.get("error"),
+            reported_by=reporter,
+        )
+        if not self.lark.send_card(chat, card):
+            log.error("Failed to post report card for alert #%s", alert_id)
+
+    # -------------------------------------------------------------- /secret1
+    def handle_secret1(self, message_id: str, mentions: list) -> None:
+        """Reply with the open_id of every @-mentioned person and remember them,
+        so duty names can be @-tagged in report cards later."""
+        import duty as duty_mod  # local import
+
+        people: list[tuple[str, str]] = []
+        for m in mentions or []:
+            name = getattr(m, "name", None) or ""
+            oid = getattr(getattr(m, "id", None), "open_id", None) or ""
+            if oid:
+                people.append((name, oid))
+
+        if not people:
+            self.lark.reply_text(
+                message_id,
+                "Usage: /secret1 @person [@person2 …] — I'll reply with their open_id.",
+            )
+            return
+
+        duty_mod.remember_openids({n: o for n, o in people if n})
+        lines = [f"{n or '(unknown)'} → {o}" for n, o in people]
+        self.lark.reply_text(
+            message_id,
+            "open_id(s):\n" + "\n".join(lines) + "\n\n(saved — these will be used to @-tag duty)",
+        )
+
     # ------------------------------------------------------------------- /kb
     def handle_kb(self, message_id: str, text: str, refresher=None,
                   requested_by: str | None = None) -> None:

@@ -18,6 +18,10 @@ from concurrent.futures import ThreadPoolExecutor
 
 import lark_oapi as lark
 from lark_oapi.api.im.v1 import P2ImMessageReceiveV1
+from lark_oapi.event.callback.model.p2_card_action_trigger import (
+    P2CardActionTrigger,
+    P2CardActionTriggerResponse,
+)
 
 from commands import CommandHandler
 from config import CONFIG
@@ -105,6 +109,12 @@ def on_message(data: P2ImMessageReceiveV1) -> None:
                 lark_client.reply_text(message_id, "Couldn't read your open_id from this message.")
             return
 
+        # /secret1 @a @b — reply with their open_ids (and remember them so duty
+        # names can be @-tagged in report cards).
+        if "/secret1" in tokens:
+            _executor.submit(commands.handle_secret1, message_id, msg.mentions or [])
+            return
+
         # /kb — knowledge-base status, lookup test, or forced refresh.
         if tokens and tokens[0] in ("/kb", "/sop") and (chat_type == "p2p" or mentioned):
             _executor.submit(commands.handle_kb, message_id, text, refresher, sender)
@@ -127,6 +137,36 @@ def on_message(data: P2ImMessageReceiveV1) -> None:
             _executor.submit(commands.handle_check, message_id, sender)
     except Exception:
         log.exception("Failed handling incoming message")
+
+
+def on_card_action(data: P2CardActionTrigger) -> P2CardActionTriggerResponse:
+    """Handle interactive-card button presses (the 'Report to SRE' button).
+
+    Card callbacks must answer fast, so the work is handed to the thread pool and
+    we return a toast immediately.
+    """
+    try:
+        action = data.event.action
+        value = (getattr(action, "value", None) or {}) if action else {}
+        operator = None
+        try:
+            operator = data.event.operator.open_id
+        except AttributeError:
+            pass
+
+        if value.get("action") == "report_sre":
+            log.info("Report-to-SRE pressed by %s for alert #%s", operator, value.get("alert_id"))
+            _executor.submit(commands.handle_report, value, operator)
+            return P2CardActionTriggerResponse(
+                {"toast": {"type": "info", "content": "Reporting to SRE…"}}
+            )
+        log.info("Unhandled card action: %r", value)
+    except Exception:
+        log.exception("Card action failed")
+        return P2CardActionTriggerResponse(
+            {"toast": {"type": "error", "content": "Failed — check the bot logs."}}
+        )
+    return P2CardActionTriggerResponse({})
 
 
 def _sender_open_id(data: P2ImMessageReceiveV1) -> str | None:
@@ -253,6 +293,7 @@ def main() -> int:
     event_handler = (
         lark.EventDispatcherHandler.builder("", "")
         .register_p2_im_message_receive_v1(on_message)
+        .register_p2_card_action_trigger(on_card_action)
         .register_p2_im_message_message_read_v1(_ignore_event)
         .register_p2_im_chat_access_event_bot_p2p_chat_entered_v1(_ignore_event)
         # Legacy v1.0-schema events some tenants still deliver:

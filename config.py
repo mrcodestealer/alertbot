@@ -104,6 +104,22 @@ class Config:
     deploy_git_dir: str = os.getenv("DEPLOY_GIT_DIR", str(BASE_DIR))
     # Comma-separated Lark open_ids allowed to deploy. Empty = any DM sender
     # (a warning is logged). Get your open_id by DMing the bot "/whoami".
+    # --- Duty lookup (copied verbatim from dutybot: sre_Duty.py / db_duty.py) ---
+    # Those modules read APP_ID / APP_SECRET / OSE_* straight from the environment,
+    # and the duty spreadsheet is shared with the DUTYBOT Lark app — a different
+    # app from this bot — so its credentials are kept separately here.
+    duty_enabled: bool = _bool("DUTY_ENABLED", True)
+    duty_app_id: str = os.getenv("APP_ID", "")
+    duty_app_secret: str = os.getenv("APP_SECRET", "")
+    ose_spreadsheet_token: str = os.getenv("OSE_SPREADSHEET_TOKEN", "")
+    ose_sheet_id: str = os.getenv("OSE_SHEET_ID", "AS33r7")
+    # Chat that "Report to SRE" posts into (defaults to the alert chat).
+    report_chat_id: str = os.getenv("REPORT_CHAT_ID", "") or os.getenv("LARK_ALERT_CHAT_ID", "")
+    # name -> open_id map collected via /secret1, used to @-tag the duty person.
+    duty_openid_file: Path = field(
+        default_factory=lambda: BASE_DIR / os.getenv("DUTY_OPENID_FILE", "duty_openids.json")
+    )
+
     # --- Knowledge base (SOP doc -> monitorflow.json) ---
     kb_enabled: bool = _bool("KB_ENABLED", True)
     # Lark Wiki node token from the doc URL (…/wiki/<TOKEN>).

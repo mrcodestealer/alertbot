@@ -11,6 +11,8 @@ screenshots/
 monitorflow.json
 monitorflow.tmp
 monitorflow.lock
+duty_openids.json
+duty_openids.tmp
 
 # Python
 __pycache__/
