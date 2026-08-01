@@ -195,15 +195,9 @@ def report_card(
     reported_by: str | None = None,
 ) -> dict[str, Any]:
     """Card posted to the SRE chat when someone presses 'Report to SRE'."""
-    elements: list[dict[str, Any]] = [
-        {
-            "tag": "div",
-            "text": {
-                "tag": "lark_md",
-                "content": f"Alert ID `{alert_id}` · Domain `{domain or '-'}` · {duty_label}",
-            },
-        }
-    ]
+    # Deliberately minimal: the alert name is the card title, then the screenshot,
+    # then the ask. No metadata line, no footer.
+    elements: list[dict[str, Any]] = []
 
     if image_key:
         elements.append(
@@ -212,6 +206,15 @@ def report_card(
                 "img_key": image_key,
                 "alt": {"tag": "plain_text", "content": "alert detail screenshot"},
                 "mode": "fit_horizontal",
+            }
+        )
+    else:
+        # Without a screenshot there'd be nothing identifying the alert beyond the
+        # title, so keep a single ID line in that failure case only.
+        elements.append(
+            {
+                "tag": "div",
+                "text": {"tag": "lark_md", "content": f"Alert ID `{alert_id}` · Domain `{domain or '-'}`"},
             }
         )
 
@@ -225,10 +228,8 @@ def report_card(
         greeting = f"Hi {duty_mention} kindly check this alert thank you"
     elements.append({"tag": "div", "text": {"tag": "lark_md", "content": greeting}})
 
-    note = f"MonitorFlow · AlertBot 📣 reported to {duty_label}"
-    if reported_by:
-        note += f" · by {reported_by}"
-    elements.append({"tag": "note", "elements": [{"tag": "plain_text", "content": note}]})
+    # No footer note here on purpose: the SRE group only needs the alert and the
+    # ask. Who pressed the button is still recorded in the bot's log.
 
     return {
         "config": {"wide_screen_mode": True},
