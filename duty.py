@@ -245,7 +245,9 @@ def mention(names: list[str]) -> str:
     for n in names:
         oid = resolve_openid(n, mapping)
         out.append(f'<at id="{oid}"></at>' if oid else n)
-    return ", ".join(out) if out else "team"
+    # Space-separated, not comma-separated: consecutive @-mentions read better
+    # in Lark without punctuation between them.
+    return " ".join(out) if out else "team"
 
 
 def roster() -> dict[str, list[str]]:
