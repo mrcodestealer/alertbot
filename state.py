@@ -96,6 +96,24 @@ class State:
             rec = self.watched.get(str(alert_id))
             if rec is not None:
                 rec["firing_message_id"] = message_id
+                self.add_message_id(alert_id, message_id)
+
+    def add_message_id(self, alert_id: int | str, message_id: str) -> None:
+        """Track every message posted for this alert (card + threaded replies)
+        so they can all be removed together when it resolves."""
+        if not message_id:
+            return
+        with self._lock:
+            rec = self.watched.get(str(alert_id))
+            if rec is not None:
+                ids = rec.setdefault("message_ids", [])
+                if message_id not in ids:
+                    ids.append(message_id)
+
+    def get_message_ids(self, alert_id: int | str) -> list[str]:
+        with self._lock:
+            rec = self.watched.get(str(alert_id))
+            return list(rec.get("message_ids") or []) if rec else []
 
     def get_firing_message_id(self, alert_id: int | str) -> str | None:
         with self._lock:

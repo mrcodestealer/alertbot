@@ -79,6 +79,11 @@ class Config:
     # On first startup, announce the alerts that are already firing?
     announce_backlog_on_start: bool = _bool("ANNOUNCE_BACKLOG_ON_START", False)
     notify_on_resolve: bool = _bool("NOTIFY_ON_RESOLVE", True)
+    # When an alert recovers, remove its card (and threaded reminders) from the
+    # chat instead of posting a resolve card. Lark's only removal API is the
+    # "recall" endpoint, which for the bot's own messages takes them out of the
+    # chat. Falls back to a resolve card if removal fails.
+    delete_on_resolve: bool = _bool("DELETE_ON_RESOLVE", False)
     # Drop an alert from state.json as soon as it resolves (after its resolve card
     # is posted). Keeps state.json small; makes /check's "resolved" list empty.
     clear_resolved: bool = _bool("CLEAR_RESOLVED", False)

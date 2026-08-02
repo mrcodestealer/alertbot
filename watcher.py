@@ -187,8 +187,11 @@ class Watcher(threading.Thread):
                 aid = rec.get("id")
                 log.info("Firing reminder (%dm) for alert #%s (age %.1fm)", threshold, aid, age_min)
                 card = cards.firing_reminder_card(rec, threshold)
-                if self.lark.reply_card(msg_id, card, in_thread=True):
+                reminder_id = self.lark.reply_card(msg_id, card, in_thread=True)
+                if reminder_id:
                     self.state.add_reminded(aid, threshold)
+                    # Track it too, so it's removed with the alert on resolve.
+                    self.state.add_message_id(aid, reminder_id)
                     self.state.save()  # persist so a crash can't re-send the reminder
                 else:
                     log.warning("Firing reminder reply failed for #%s (%dm)", aid, threshold)
@@ -205,7 +208,25 @@ class Watcher(threading.Thread):
             return
         log.info("Alert #%s resolved", alert_id)
         firing_msg_id = self.state.get_firing_message_id(alert_id)
+        posted_ids = self.state.get_message_ids(alert_id)
         self.state.mark_resolved(alert_id, detail)
+
+        # Remove the alert's messages entirely once it recovers.
+        if CONFIG.delete_on_resolve and posted_ids:
+            removed = 0
+            # Newest first so threaded replies go before their parent.
+            for mid in reversed(posted_ids):
+                if self.lark.delete_message(mid):
+                    removed += 1
+            log.info("Alert #%s resolved — removed %d/%d message(s)", alert_id, removed, len(posted_ids))
+            if removed:
+                if CONFIG.clear_resolved:
+                    self.state.forget(alert_id)
+                return  # nothing left to thread a resolve card under
+            log.warning(
+                "Could not remove any message for #%s (too old to recall?) — "
+                "falling back to a resolve card", alert_id,
+            )
 
         if CONFIG.notify_on_resolve and CONFIG.lark_alert_chat_id:
             card = cards.resolve_card(detail)

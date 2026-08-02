@@ -18,6 +18,7 @@ from lark_oapi.api.im.v1 import (
     CreateMessageRequest,
     CreateMessageRequestBody,
     DeleteMessageReactionRequest,
+    DeleteMessageRequest,
     Emoji,
     ReplyMessageRequest,
     ReplyMessageRequestBody,
@@ -74,7 +75,22 @@ class LarkClient:
         return True
 
     # ------------------------------------------------------------- reply
-    def reply_card(self, message_id: str, card: dict[str, Any], *, in_thread: bool = True) -> bool:
+    def delete_message(self, message_id: str) -> bool:
+        """Remove a message the bot sent. This is Lark's only removal API
+        (named 'recall'); for the bot's own cards it takes them out of the chat."""
+        if not message_id:
+            return False
+        req = DeleteMessageRequest.builder().message_id(message_id).build()
+        resp = self._client.im.v1.message.delete(req)
+        if not resp.success():
+            log.warning(
+                "delete_message(%s) failed: code=%s msg=%s log_id=%s",
+                message_id, resp.code, resp.msg, resp.get_log_id(),
+            )
+            return False
+        return True
+
+    def reply_card(self, message_id: str, card: dict[str, Any], *, in_thread: bool = True) -> str | None:
         req = (
             ReplyMessageRequest.builder()
             .message_id(message_id)
@@ -90,8 +106,8 @@ class LarkClient:
         resp = self._client.im.v1.message.reply(req)
         if not resp.success():
             log.error("reply_card failed: code=%s msg=%s log_id=%s", resp.code, resp.msg, resp.get_log_id())
-            return False
-        return True
+            return None
+        return resp.data.message_id
 
     # ---------------------------------------------------------- proactive
     def send_card(self, chat_id: str, card: dict[str, Any]) -> str | None:
