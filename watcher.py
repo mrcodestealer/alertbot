@@ -211,8 +211,24 @@ class Watcher(threading.Thread):
         posted_ids = self.state.get_message_ids(alert_id)
         self.state.mark_resolved(alert_id, detail)
 
-        # Remove the alert's messages entirely once it recovers.
-        if CONFIG.delete_on_resolve and posted_ids:
+        action = CONFIG.resolve_action
+
+        # "collapse": rewrite the card in place. Leaves no "recalled" notice.
+        if action == "collapse" and firing_msg_id:
+            small = cards.collapsed_card(detail)
+            if self.lark.patch_card(firing_msg_id, small):
+                # Shrink the threaded reminders too, so nothing bulky remains.
+                for mid in posted_ids:
+                    if mid != firing_msg_id:
+                        self.lark.patch_card(mid, small)
+                log.info("Alert #%s resolved — card collapsed in place", alert_id)
+                if CONFIG.clear_resolved:
+                    self.state.forget(alert_id)
+                return
+            log.warning("Could not collapse card for #%s — falling back to a resolve card", alert_id)
+
+        # "delete": recall the messages (Lark shows a 'recalled' tombstone).
+        if action == "delete" and posted_ids:
             removed = 0
             # Newest first so threaded replies go before their parent.
             for mid in reversed(posted_ids):

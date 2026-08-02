@@ -242,6 +242,28 @@ def report_card(
     }
 
 
+def collapsed_card(alert: dict[str, Any]) -> dict[str, Any]:
+    """Tiny card that replaces a firing alert's card once it recovers.
+
+    Used instead of recalling the message: patching leaves no "recalled a
+    message" notice, and the big card (screenshot, SOP, button) shrinks to one
+    quiet line.
+    """
+    title = alert.get("alert_rule") or alert.get("summary") or f"Alert #{alert.get('id')}"
+    return {
+        "config": {"wide_screen_mode": True},
+        "elements": [
+            {
+                "tag": "div",
+                "text": {
+                    "tag": "lark_md",
+                    "content": f"✅ ~~{_clip(title, 90)}~~ · resolved / 已恢复",
+                },
+            }
+        ],
+    }
+
+
 def resolve_card(alert: dict[str, Any]) -> dict[str, Any]:
     """Card sent when a previously-firing alert has recovered."""
     title = alert.get("alert_rule") or alert.get("summary") or f"Alert #{alert.get('id')}"

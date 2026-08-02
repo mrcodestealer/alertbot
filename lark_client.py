@@ -20,6 +20,8 @@ from lark_oapi.api.im.v1 import (
     DeleteMessageReactionRequest,
     DeleteMessageRequest,
     Emoji,
+    PatchMessageRequest,
+    PatchMessageRequestBody,
     ReplyMessageRequest,
     ReplyMessageRequestBody,
 )
@@ -85,6 +87,33 @@ class LarkClient:
         if not resp.success():
             log.warning(
                 "delete_message(%s) failed: code=%s msg=%s log_id=%s",
+                message_id, resp.code, resp.msg, resp.get_log_id(),
+            )
+            return False
+        return True
+
+    def patch_card(self, message_id: str, card: dict[str, Any]) -> bool:
+        """Rewrite an already-sent card in place.
+
+        Unlike delete/recall this leaves NO "recalled a message" notice — the
+        message quietly becomes whatever the new card says.
+        """
+        if not message_id:
+            return False
+        req = (
+            PatchMessageRequest.builder()
+            .message_id(message_id)
+            .request_body(
+                PatchMessageRequestBody.builder()
+                .content(json.dumps(card, ensure_ascii=False))
+                .build()
+            )
+            .build()
+        )
+        resp = self._client.im.v1.message.patch(req)
+        if not resp.success():
+            log.warning(
+                "patch_card(%s) failed: code=%s msg=%s log_id=%s",
                 message_id, resp.code, resp.msg, resp.get_log_id(),
             )
             return False
