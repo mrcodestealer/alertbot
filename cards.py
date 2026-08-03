@@ -288,11 +288,12 @@ def collapsed_card(alert: dict[str, Any]) -> dict[str, Any]:
     lines = [f"✅ **{_clip(title, 90)}** · resolved / 已恢复"]
 
     try:
-        count = int(alert.get("alert_count") or 0)
+        count = int(alert.get("flap_count") or 0)
     except (TypeError, ValueError):
         count = 0
-    if count > 1:
-        lines.append(f"- Continue firing and resolved - {count} times")
+    if count > 0:
+        unit = "time" if count == 1 else "times"
+        lines.append(f"- Continue firing and resolved - {count} {unit}")
 
     dur = firing_duration(alert)
     if dur:

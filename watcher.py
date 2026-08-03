@@ -213,13 +213,14 @@ class Watcher(threading.Thread):
 
         action = CONFIG.resolve_action
 
-        # The detail endpoint doesn't return alert_count (累计告警) — only the
-        # list does — so fall back to what we recorded when we first saw it.
         summary = dict(detail)
-        if not summary.get("alert_count"):
-            tracked = self.state.watched.get(str(alert_id)) or {}
-            if tracked.get("alert_count"):
-                summary["alert_count"] = tracked["alert_count"]
+        # How many times this rule has fired AND resolved in quick succession.
+        # Counted per rule name, because each firing gets a new alert id; the
+        # counter resets once the rule stays quiet past the window.
+        rule = summary.get("alert_rule") or summary.get("summary") or ""
+        window = CONFIG.flap_window_minutes * 60
+        summary["flap_count"] = self.state.record_flap(rule, window)
+        self.state.prune_flaps(window)
 
         # "collapse": rewrite the card in place. Leaves no "recalled" notice.
         if action == "collapse" and firing_msg_id:

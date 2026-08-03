@@ -87,6 +87,10 @@ class Config:
     #              "Alert Bot recalled a message." tombstone.
     #   card     - leave it and post a resolve card in its thread.
     resolve_action: str = os.getenv("RESOLVE_ACTION", "card").strip().lower()
+    # An alert that fires again within this many minutes of resolving counts as
+    # still flapping ("Continue firing and resolved - N times"). Stay quiet
+    # longer than this and the counter resets to a fresh incident.
+    flap_window_minutes: int = _int("FLAP_WINDOW_MINUTES", 15)
     # Drop an alert from state.json as soon as it resolves (after its resolve card
     # is posted). Keeps state.json small; makes /check's "resolved" list empty.
     clear_resolved: bool = _bool("CLEAR_RESOLVED", False)
