@@ -213,9 +213,17 @@ class Watcher(threading.Thread):
 
         action = CONFIG.resolve_action
 
+        # The detail endpoint doesn't return alert_count (累计告警) — only the
+        # list does — so fall back to what we recorded when we first saw it.
+        summary = dict(detail)
+        if not summary.get("alert_count"):
+            tracked = self.state.watched.get(str(alert_id)) or {}
+            if tracked.get("alert_count"):
+                summary["alert_count"] = tracked["alert_count"]
+
         # "collapse": rewrite the card in place. Leaves no "recalled" notice.
         if action == "collapse" and firing_msg_id:
-            small = cards.collapsed_card(detail)
+            small = cards.collapsed_card(summary)
             if self.lark.patch_card(firing_msg_id, small):
                 # Shrink the threaded reminders too, so nothing bulky remains.
                 for mid in posted_ids:

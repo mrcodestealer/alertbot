@@ -242,6 +242,41 @@ def report_card(
     }
 
 
+def _parse_dt(value: Any):
+    from datetime import datetime, timezone
+
+    if not value:
+        return None
+    try:
+        dt = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    except (ValueError, TypeError):
+        return None
+    return dt.replace(tzinfo=timezone.utc) if dt.tzinfo is None else dt
+
+
+def format_duration(seconds: float) -> str:
+    """Human duration: 45s / 5m 1s / 1h 23m / 2d 3h."""
+    s = int(max(0, seconds))
+    if s < 60:
+        return f"{s}s"
+    if s < 3600:
+        return f"{s // 60}m {s % 60}s" if s % 60 else f"{s // 60}m"
+    if s < 86400:
+        return f"{s // 3600}h {(s % 3600) // 60}m" if (s % 3600) // 60 else f"{s // 3600}h"
+    return f"{s // 86400}d {(s % 86400) // 3600}h"
+
+
+def firing_duration(alert: dict[str, Any]) -> str | None:
+    """How long the alert was firing: created_at -> end_time (or now)."""
+    from datetime import datetime, timezone
+
+    start = _parse_dt(alert.get("created_at"))
+    if start is None:
+        return None
+    end = _parse_dt(alert.get("end_time")) or _parse_dt(alert.get("updated_at")) or datetime.now(timezone.utc)
+    return format_duration((end - start).total_seconds())
+
+
 def collapsed_card(alert: dict[str, Any]) -> dict[str, Any]:
     """Tiny card that replaces a firing alert's card once it recovers.
 
@@ -250,17 +285,22 @@ def collapsed_card(alert: dict[str, Any]) -> dict[str, Any]:
     quiet line.
     """
     title = alert.get("alert_rule") or alert.get("summary") or f"Alert #{alert.get('id')}"
+    lines = [f"✅ **{_clip(title, 90)}** · resolved / 已恢复"]
+
+    try:
+        count = int(alert.get("alert_count") or 0)
+    except (TypeError, ValueError):
+        count = 0
+    if count > 1:
+        lines.append(f"- Continue firing and resolved - {count} times")
+
+    dur = firing_duration(alert)
+    if dur:
+        lines.append(f"- Firing duration: {dur}")
+
     return {
         "config": {"wide_screen_mode": True},
-        "elements": [
-            {
-                "tag": "div",
-                "text": {
-                    "tag": "lark_md",
-                    "content": f"✅ ~~{_clip(title, 90)}~~ · resolved / 已恢复",
-                },
-            }
-        ],
+        "elements": [{"tag": "div", "text": {"tag": "lark_md", "content": "\n".join(lines)}}],
     }
 
 

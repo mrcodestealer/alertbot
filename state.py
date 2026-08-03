@@ -27,6 +27,10 @@ def _summarize(alert: dict[str, Any]) -> dict[str, Any]:
         "env": alert.get("env"),
         "domain": alert.get("domain"),
         "created_at": alert.get("created_at"),
+        # Cumulative fire count (累计告警). Only the list endpoint returns it,
+        # so keep it here for the resolve card to use.
+        "alert_count": alert.get("alert_count"),
+        "end_time": alert.get("end_time"),
     }
 
 
