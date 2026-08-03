@@ -385,14 +385,18 @@ def _alert_line(alert: dict[str, Any]) -> str:
 
 
 def _sop_alert_line(item: dict[str, Any]) -> str:
-    """One line for a firing alert in the /check card, with its SOP verdict."""
+    """One line for a firing alert in the /check card, with its SOP verdict.
+
+    /check answers "which alert NAMES are/aren't documented", so it shows the
+    rule name (with a count when several instances are firing) and no alert IDs.
+    """
     alert = item["alert"]
     verdict = item.get("verdict") or {}
     entry = verdict.get("entry") or {}
     sev = _emoji(alert)
-    aid = alert.get("id", "?")
     rule = alert.get("alert_rule") or alert.get("summary") or "-"
-    line = f"{sev} `#{aid}` **{rule}**"
+    count = item.get("count") or 1
+    line = f"{sev} **{rule}**" + (f" ×{count}" if count > 1 else "")
     if verdict.get("in_docs"):
         badge = _IMPORTANCE_BADGE.get(str(verdict.get("importance", "medium")).lower(), "")
         line += f"\n   {badge} — {_clip(verdict.get('action') or entry.get('summary'), 120)}"
@@ -412,7 +416,7 @@ def _idle_line(entry: dict[str, Any]) -> str:
     near = entry.get("_near")
     if near:
         line += (
-            f"\n   ⚠️ possible name mismatch → firing `#{near['id']}` "
+            f"\n   ⚠️ possible name mismatch → firing as "
             f"**{_clip(near['rule'], 60)}** (score {near['score']})"
         )
     return line

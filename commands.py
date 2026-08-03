@@ -286,11 +286,20 @@ class CommandHandler:
           1. firing but NOT in the doc, 2. firing and in the doc,
           3. documented alerts that are not firing right now.
         """
+        # Group by alert NAME: /check is about which names are documented, so
+        # several instances of the same rule collapse into one line with a count.
         undocumented, documented = [], []
         matched_titles: set[str] = set()
+        seen: dict[str, dict] = {}
         for alert in firing:
+            name = (alert.get("alert_rule") or alert.get("summary") or "").strip().lower()
+            if name and name in seen:
+                seen[name]["count"] += 1
+                continue
             verdict = self.kb.lookup(alert)
-            item = {"alert": alert, "verdict": verdict}
+            item = {"alert": alert, "verdict": verdict, "count": 1}
+            if name:
+                seen[name] = item
             if verdict.get("in_docs"):
                 documented.append(item)
                 title = (verdict.get("entry") or {}).get("alert_title")
