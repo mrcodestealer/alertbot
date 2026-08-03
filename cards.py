@@ -277,6 +277,19 @@ def firing_duration(alert: dict[str, Any]) -> str | None:
     return format_duration((end - start).total_seconds())
 
 
+def collapsed_reminder_card() -> dict[str, Any]:
+    """Replacement for a threaded 'still firing' reminder once the alert clears.
+
+    Deliberately just a marker: the parent card already carries the alert name,
+    flap count and duration, so repeating them here would show the same text
+    twice in the same thread.
+    """
+    return {
+        "config": {"wide_screen_mode": True},
+        "elements": [{"tag": "div", "text": {"tag": "lark_md", "content": "✅ resolved / 已恢复"}}],
+    }
+
+
 def collapsed_card(alert: dict[str, Any]) -> dict[str, Any]:
     """Tiny card that replaces a firing alert's card once it recovers.
 

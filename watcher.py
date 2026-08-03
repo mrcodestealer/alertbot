@@ -226,10 +226,13 @@ class Watcher(threading.Thread):
         if action == "collapse" and firing_msg_id:
             small = cards.collapsed_card(summary)
             if self.lark.patch_card(firing_msg_id, small):
-                # Shrink the threaded reminders too, so nothing bulky remains.
+                # Collapse the threaded "still firing" reminders to a bare
+                # marker — reusing `small` here would repeat the whole resolved
+                # card inside the thread.
+                marker = cards.collapsed_reminder_card()
                 for mid in posted_ids:
                     if mid != firing_msg_id:
-                        self.lark.patch_card(mid, small)
+                        self.lark.patch_card(mid, marker)
                 log.info("Alert #%s resolved — card collapsed in place", alert_id)
                 if CONFIG.clear_resolved:
                     self.state.forget(alert_id)
