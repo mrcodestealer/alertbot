@@ -203,6 +203,41 @@ def condition_notes(alert: dict[str, Any], entry: dict[str, Any]) -> list[str]:
     return notes
 
 
+def match_score(alert: dict[str, Any], entry: dict[str, Any]) -> float:
+    """Public similarity score between an alert and a KB entry (0..1).
+
+    Used by /check to spot near-misses: a documented alert that IS firing but
+    whose name differs enough that the matcher didn't link them.
+    """
+    text = " ".join(str(alert.get(k) or "") for k in ("alert_rule", "summary")).strip()
+    return _score(text, entry)
+
+
+# Words shared by lots of unrelated alerts — they must not, on their own, make
+# two different alerts look like the same one under a different name.
+_GENERIC_TOKENS = {
+    "aliyun", "cluster", "monitor", "monitoring", "service", "server",
+    "instance", "container", "kubernetes", "namespace", "restart",
+}
+
+
+def shares_distinctive_token(alert: dict[str, Any], entry: dict[str, Any]) -> bool:
+    """True if the alert and entry share a specific, non-generic word.
+
+    "Aliyun - PROD - ACK - HighNodeLoad1Alert10" and "Aliyun - ACK - PROD - Pod
+    Restart" overlap only on vendor boilerplate; a real name mismatch shares
+    something meaningful like "pulsar" or "apisix".
+    """
+    a_tok = _tokens(" ".join(str(alert.get(k) or "") for k in ("alert_rule", "summary")))
+    c_tok: set[str] = set()
+    for cand in [entry.get("alert_title", ""), *(entry.get("aliases") or [])]:
+        c_tok |= _tokens(cand)
+    for tok in a_tok & c_tok:
+        if len(tok) >= 6 and tok not in _GENERIC_TOKENS and not tok.isdigit():
+            return True
+    return False
+
+
 def is_working_hours(now: datetime | None = None) -> bool:
     tz = timezone(timedelta(hours=CONFIG.work_timezone_offset_hours))
     now = (now or datetime.now(timezone.utc)).astimezone(tz)

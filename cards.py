@@ -401,6 +401,23 @@ def _sop_alert_line(item: dict[str, Any]) -> str:
     return line
 
 
+def _idle_line(entry: dict[str, Any]) -> str:
+    """A documented alert that isn't currently matched to anything firing.
+
+    If it nearly matched a firing alert, flag it — that's a likely name mismatch
+    between the SOP doc and the dashboard, which is what this section is for.
+    """
+    badge = _IMPORTANCE_BADGE.get(str(entry.get("importance", "medium")).lower(), "")
+    line = f"{badge} {_clip(entry.get('alert_title'), 70)}"
+    near = entry.get("_near")
+    if near:
+        line += (
+            f"\n   ⚠️ possible name mismatch → firing `#{near['id']}` "
+            f"**{_clip(near['rule'], 60)}** (score {near['score']})"
+        )
+    return line
+
+
 def check_sop_card(
     firing_undocumented: list[dict[str, Any]],
     firing_documented: list[dict[str, Any]],
@@ -449,10 +466,7 @@ def check_sop_card(
     # 3) documented but quiet
     section(
         f"**📗 文档已记录 · 目前无告警 / In SOP doc — not firing now ({len(idle_documented)})**",
-        [
-            f"{_IMPORTANCE_BADGE.get(str(e.get('importance','medium')).lower(),'')} {_clip(e.get('alert_title'), 70)}"
-            for e in idle_documented
-        ],
+        [_idle_line(e) for e in idle_documented],
         "SOP doc is empty — run /kb refresh",
         sep="\n",  # one line each, keep it compact
     )

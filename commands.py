@@ -62,6 +62,10 @@ def _build_matcher(pattern: str):
 
 
 class CommandHandler:
+    # A doc entry scoring at least this against a firing alert (but below the
+    # match threshold) is flagged in /check as a probable name mismatch.
+    NEAR_MISS_MIN = 0.30
+
     def __init__(self, monitor: MonitorClient, lark: LarkClient, state: State, kb=None) -> None:
         self.monitor = monitor
         self.lark = lark
@@ -295,11 +299,39 @@ class CommandHandler:
             else:
                 undocumented.append(item)
 
-        idle = [e for e in self.kb.entries if e.get("alert_title") not in matched_titles]
-        # Most important first within each firing group.
+        # Category 3: documented alerts with no matching firing alert. Annotate
+        # any that ALMOST matched something currently firing — that's the whole
+        # point of this section: catching a name mismatch between the doc and
+        # the dashboard.
+        from knowledge import match_score, shares_distinctive_token  # noqa: PLC0415
+
+        idle = []
+        for e in self.kb.entries:
+            if e.get("alert_title") in matched_titles:
+                continue
+            e = dict(e)  # don't mutate the stored KB
+            best_s, best_a = 0.0, None
+            for item in undocumented:
+                # Require a meaningful shared word, otherwise vendor boilerplate
+                # ("aliyun", "ack") flags every entry as a mismatch.
+                if not shares_distinctive_token(item["alert"], e):
+                    continue
+                s = match_score(item["alert"], e)
+                if s > best_s:
+                    best_s, best_a = s, item["alert"]
+            if best_a is not None and self.NEAR_MISS_MIN <= best_s < self.kb.MATCH_THRESHOLD:
+                e["_near"] = {
+                    "score": round(best_s, 2),
+                    "id": best_a.get("id"),
+                    "rule": best_a.get("alert_rule") or best_a.get("summary") or "",
+                }
+            idle.append(e)
+
         rank = {"high": 0, "medium": 1, "low": 2, "unknown": 0}
         documented.sort(key=lambda i: rank.get(str(i["verdict"].get("importance")).lower(), 3))
-        idle.sort(key=lambda e: rank.get(str(e.get("importance")).lower(), 3))
+        # Suspected mismatches first — they need action; the rest are just quiet.
+        idle.sort(key=lambda e: (0 if e.get("_near") else 1,
+                                 rank.get(str(e.get("importance")).lower(), 3)))
         return undocumented, documented, idle
 
     def _collect(self) -> tuple[list[dict], list[dict]]:
