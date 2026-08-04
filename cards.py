@@ -109,20 +109,23 @@ def new_alert_card(
     alert: dict[str, Any],
     image_key: str | None = None,
     kb_verdict: dict[str, Any] | None = None,
+    firing_minutes: int | None = None,
 ) -> dict[str, Any]:
-    """Card for a newly-detected firing alert."""
+    """Card for a firing alert.
+
+    ``firing_minutes`` adds a "still firing" banner. The card is updated in
+    place rather than posting a threaded reminder, so an alert only ever
+    occupies one message in the chat.
+    """
     title = alert.get("alert_rule") or alert.get("summary") or f"Alert #{alert.get('id')}"
     # Compact card: ID + screenshot + SOP. The alert's instance/description are
     # still parsed by the knowledge base (matching + condition checks) — they're
     # just not rendered, because the screenshot already shows them.
+    head = f"{_emoji(alert)} **{alert.get('severity', '-')}** · Alert ID `{alert.get('id', '-')}`"
+    if firing_minutes:
+        head += f"\n⏰ **Still firing for {firing_minutes} min — not recovered yet**"
     elements: list[dict[str, Any]] = [
-        {
-            "tag": "div",
-            "text": {
-                "tag": "lark_md",
-                "content": f"{_emoji(alert)} **{alert.get('severity', '-')}** · Alert ID `{alert.get('id', '-')}`",
-            },
-        },
+        {"tag": "div", "text": {"tag": "lark_md", "content": head}},
     ]
 
     if image_key:

@@ -114,6 +114,14 @@ class State:
                 rec["firing_message_id"] = message_id
                 self.add_message_id(alert_id, message_id)
 
+    def set_image_key(self, alert_id: int | str, image_key: str) -> None:
+        """Remember the uploaded screenshot so the card can be re-rendered
+        in place (the 'still firing' update) without re-capturing it."""
+        with self._lock:
+            rec = self.watched.get(str(alert_id))
+            if rec is not None:
+                rec["image_key"] = image_key
+
     def add_message_id(self, alert_id: int | str, message_id: str) -> None:
         """Track every message posted for this alert (card + threaded replies)
         so they can all be removed together when it resolves."""

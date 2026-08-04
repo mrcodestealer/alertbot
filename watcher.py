@@ -98,11 +98,15 @@ class Watcher(threading.Thread):
         )
         first_failure_id: int | None = None
         for alert in new_alerts:
-            delivered, msg_id = self._announce_new(alert)
+            delivered, msg_id, image_key = self._announce_new(alert)
             if delivered:
                 self.state.track(alert, announced=True)
                 if msg_id:
                     self.state.set_firing_message_id(alert["id"], msg_id)
+                if image_key:
+                    # Kept so the "still firing" update can re-render the same
+                    # card without re-capturing the screenshot.
+                    self.state.set_image_key(alert["id"], image_key)
                 self.state.save()  # persist incrementally: a restart can't re-announce
             elif first_failure_id is None:
                 first_failure_id = int(alert["id"])
@@ -140,15 +144,14 @@ class Watcher(threading.Thread):
         self.state.save()
 
     # ------------------------------------------------------------- announce
-    def _announce_new(self, alert: dict) -> tuple[bool, str | None]:
-        """Announce a new alert. Returns (delivered, message_id):
-        (True, msg_id) on a successful send, (True, None) when no alert chat is
-        configured (nothing to deliver), (False, None) on a delivery failure so
-        the caller leaves it untracked for a retry."""
+    def _announce_new(self, alert: dict) -> tuple[bool, str | None, str | None]:
+        """Announce a new alert. Returns (delivered, message_id, image_key).
+        The image key is returned rather than stored here because the alert is
+        only added to state after this call."""
         aid = alert.get("id")
         log.info("New alert #%s: %s", aid, alert.get("alert_rule"))
         if not CONFIG.lark_alert_chat_id:
-            return True, None
+            return True, None, None
         try:
             # Local SOP lookup — no LLM call here, so this stays fast.
             verdict = None
@@ -168,10 +171,10 @@ class Watcher(threading.Thread):
                 image_key = self.lark.upload_image(shot)
             card = cards.new_alert_card(alert, image_key=image_key, kb_verdict=verdict)
             msg_id = self.lark.send_card(CONFIG.lark_alert_chat_id, card)
-            return (msg_id is not None), msg_id
+            return (msg_id is not None), msg_id, image_key
         except Exception:
             log.exception("Failed to announce alert #%s", aid)
-            return False, None
+            return False, None, None
 
     # -------------------------------------------------------- name catalogue
     def _refresh_catalogue(self) -> None:
@@ -226,15 +229,26 @@ class Watcher(threading.Thread):
                     continue
                 aid = rec.get("id")
                 log.info("Firing reminder (%dm) for alert #%s (age %.1fm)", threshold, aid, age_min)
-                card = cards.firing_reminder_card(rec, threshold)
-                reminder_id = self.lark.reply_card(msg_id, card, in_thread=True)
-                if reminder_id:
+                # Update the existing card in place — posting a threaded reply
+                # would leave a second message that can't be removed cleanly
+                # once the alert resolves.
+                verdict = None
+                if self.kb is not None:
+                    try:
+                        verdict = self.kb.lookup(rec)
+                    except Exception:
+                        log.exception("KB lookup failed for #%s", aid)
+                card = cards.new_alert_card(
+                    rec,
+                    image_key=rec.get("image_key"),
+                    kb_verdict=verdict,
+                    firing_minutes=threshold,
+                )
+                if self.lark.patch_card(msg_id, card):
                     self.state.add_reminded(aid, threshold)
-                    # Track it too, so it's removed with the alert on resolve.
-                    self.state.add_message_id(aid, reminder_id)
                     self.state.save()  # persist so a crash can't re-send the reminder
                 else:
-                    log.warning("Firing reminder reply failed for #%s (%dm)", aid, threshold)
+                    log.warning("Firing reminder update failed for #%s (%dm)", aid, threshold)
 
     def _handle_possible_resolution(self, alert_id) -> None:
         try:
