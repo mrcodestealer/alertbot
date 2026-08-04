@@ -71,6 +71,9 @@ class Watcher(threading.Thread):
             severity=CONFIG.severity_filter, status="firing", page_size=CONFIG.monitor_page_size
         )
         firing_ids = {int(a["id"]) for a in firing if a.get("id") is not None}
+        # Catalogue the names we see, so /check knows about them even if they
+        # later drop out of its scan window.
+        self.state.record_rules(firing)
         max_id = max(firing_ids) if firing_ids else self.state.last_id
 
         # First run: seed the baseline so we don't replay the whole backlog.

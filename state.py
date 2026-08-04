@@ -46,6 +46,10 @@ class State:
         # that keeps firing and resolving; keyed by RULE NAME because every
         # firing gets a brand-new alert id.
         self.flaps: dict[str, dict[str, Any]] = {}
+        # Catalogue of every alert NAME ever seen -> {name,count,first_seen,
+        # last_seen,severity,domain}. Lets /check report doc coverage over all
+        # history, not just the current scan window.
+        self.seen_rules: dict[str, dict[str, Any]] = {}
         self._load()
 
     # --------------------------------------------------------------- persist
@@ -59,6 +63,7 @@ class State:
             self.seeded = bool(data.get("seeded", False))
             self.watched = data.get("watched", {}) or {}
             self.flaps = data.get("flaps", {}) or {}
+            self.seen_rules = data.get("seen_rules", {}) or {}
             log.info("Loaded state: last_id=%s, watched=%d", self.last_id, len(self.watched))
         except Exception:  # pragma: no cover - defensive
             log.exception("Failed to load state file; starting fresh")
@@ -67,7 +72,8 @@ class State:
         with self._lock:
             tmp = self._path.with_suffix(".tmp")
             payload = {"last_id": self.last_id, "seeded": self.seeded,
-                       "watched": self.watched, "flaps": self.flaps}
+                       "watched": self.watched, "flaps": self.flaps,
+                       "seen_rules": self.seen_rules}
             tmp.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
             tmp.replace(self._path)
 
@@ -146,6 +152,45 @@ class State:
     def resolved(self) -> list[dict[str, Any]]:
         with self._lock:
             return [r for r in self.watched.values() if r.get("status") == "resolved"]
+
+    def record_rules(self, alerts: list[dict[str, Any]], now: float | None = None) -> int:
+        """Remember every alert NAME we've seen, with how often and when.
+
+        This builds a lasting catalogue so /check can report documentation
+        coverage across everything ever observed, instead of only the alerts
+        that happen to be in the current scan window.
+        Returns the number of names that were new.
+        """
+        now = time.time() if now is None else now
+        new = 0
+        with self._lock:
+            for a in alerts:
+                name = (a.get("alert_rule") or a.get("summary") or "").strip()
+                if not name:
+                    continue
+                key = " ".join(name.split()).lower()
+                rec = self.seen_rules.get(key)
+                if rec is None:
+                    rec = {"name": name, "count": 0, "first_seen": now,
+                           "severity": a.get("severity"), "domain": a.get("domain")}
+                    self.seen_rules[key] = rec
+                    new += 1
+                rec["count"] = int(rec.get("count", 0)) + 1
+                rec["last_seen"] = now
+                if a.get("severity"):
+                    rec["severity"] = a.get("severity")
+                if a.get("domain"):
+                    rec["domain"] = a.get("domain")
+        return new
+
+    def prune_seen_rules(self, max_entries: int = 1000) -> None:
+        """Cap the catalogue, dropping the least recently seen names."""
+        with self._lock:
+            if len(self.seen_rules) <= max_entries:
+                return
+            ordered = sorted(self.seen_rules.items(),
+                             key=lambda kv: kv[1].get("last_seen") or 0, reverse=True)
+            self.seen_rules = dict(ordered[:max_entries])
 
     def record_flap(self, rule: str, window_seconds: int, now: float | None = None) -> int:
         """Count consecutive fire→resolve cycles for an alert rule.

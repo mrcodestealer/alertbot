@@ -315,6 +315,31 @@ class CommandHandler:
             else:
                 undocumented.append(item)
 
+        # Names recorded on earlier runs but absent from this scan window still
+        # count for documentation coverage — that's the point of the catalogue.
+        if self.state is not None:
+            for key, rec in (self.state.seen_rules or {}).items():
+                if key in seen:
+                    continue
+                pseudo = {
+                    "alert_rule": rec.get("name") or key,
+                    "severity": rec.get("severity") or "CRITICAL",
+                    "domain": rec.get("domain") or "",
+                    "summary": "", "instance": "", "description": "",
+                    "status": "resolved",
+                }
+                verdict = self.kb.lookup(pseudo)
+                item = {"alert": pseudo, "verdict": verdict,
+                        "count": int(rec.get("count") or 1), "firing": 0, "historic": True}
+                seen[key] = item
+                if verdict.get("in_docs"):
+                    documented.append(item)
+                    title = (verdict.get("entry") or {}).get("alert_title")
+                    if title:
+                        matched_titles.add(title)
+                else:
+                    undocumented.append(item)
+
         # Category 3: documented alerts with no matching firing alert. Annotate
         # any that ALMOST matched something currently firing — that's the whole
         # point of this section: catching a name mismatch between the doc and
@@ -361,11 +386,20 @@ class CommandHandler:
         whether or not it happens to be firing at this instant — so scan the
         recent history rather than only the live firing set.
         """
-        return self.monitor.list_all_alerts(
+        alerts = self.monitor.list_all_alerts(
             severity=CONFIG.severity_filter,
             page_size=CONFIG.monitor_page_size,
             max_pages=CONFIG.check_lookback_pages,
         )
+        # Add every name to the lasting catalogue so coverage isn't limited to
+        # what happens to be in this scan window.
+        if self.state is not None:
+            new = self.state.record_rules(alerts)
+            self.state.prune_seen_rules()
+            self.state.save()
+            if new:
+                log.info("/check recorded %d new alert name(s)", new)
+        return alerts
 
     def _collect(self) -> tuple[list[dict], list[dict]]:
         """Return (still_firing, resolved) — read-only.

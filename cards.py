@@ -454,6 +454,8 @@ def _sop_alert_line(item: dict[str, Any]) -> str:
     line = f"{sev} **{rule}**" + (f" ×{count}" if count > 1 else "")
     if firing:
         line += f" · 🔥{firing} firing"
+    elif item.get("historic"):
+        line += " · 🕘 seen earlier"
     elif firing == 0:
         line += " · ✅ all resolved"
     if verdict.get("in_docs"):
