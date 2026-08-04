@@ -109,6 +109,9 @@ class Config:
     # Max entries listed per /check section. High enough to show everything in
     # practice; it only exists because Lark rejects an over-large card.
     check_max_per_section: int = _int("CHECK_MAX_PER_SECTION", 60)
+    # How many pages of recent alerts /check scans (firing + resolved) when
+    # working out which alert names are documented.
+    check_lookback_pages: int = _int("CHECK_LOOKBACK_PAGES", 4)
 
     # --- Self-deploy via DM (git pull + restart service) ---
     # OFF by default: this executes shell commands on the server.

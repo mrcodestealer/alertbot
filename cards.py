@@ -450,7 +450,12 @@ def _sop_alert_line(item: dict[str, Any]) -> str:
     sev = _emoji(alert)
     rule = alert.get("alert_rule") or alert.get("summary") or "-"
     count = item.get("count") or 1
+    firing = item.get("firing")
     line = f"{sev} **{rule}**" + (f" ×{count}" if count > 1 else "")
+    if firing:
+        line += f" · 🔥{firing} firing"
+    elif firing == 0:
+        line += " · ✅ all resolved"
     if verdict.get("in_docs"):
         badge = _IMPORTANCE_BADGE.get(str(verdict.get("importance", "medium")).lower(), "")
         line += f"\n   {badge} — {_clip(verdict.get('action') or entry.get('summary'), 120)}"
@@ -484,6 +489,7 @@ def check_sop_card(
     *,
     requested_by: str | None = None,
     severity_label: str = "all",
+    scanned: int | None = None,
 ) -> dict[str, Any]:
     """/check summary grouped by SOP coverage:
     1. firing but NOT in the SOP doc, 2. firing and found in the doc,
@@ -507,23 +513,23 @@ def check_sop_card(
 
     # 1) firing, undocumented — most urgent
     section(
-        f"**⚠️ 告警中 · 不在文档 / Firing — NOT in SOP doc ({len(firing_undocumented)})**",
+        f"**⚠️ 不在文档 / NOT in SOP doc ({len(firing_undocumented)} alert name(s))**",
         [_sop_alert_line(i) for i in firing_undocumented],
-        "None — every firing alert is documented 🎉",
+        "None — every alert seen is documented 🎉",
     )
     elements.append(_divider())
 
     # 2) firing, documented
     section(
-        f"**📕 告警中 · 已记录 / Firing — found in SOP doc ({len(firing_documented)})**",
+        f"**📕 已记录 / Found in SOP doc ({len(firing_documented)} alert name(s))**",
         [_sop_alert_line(i) for i in firing_documented],
-        "None firing right now",
+        "None seen recently",
     )
     elements.append(_divider())
 
     # 3) documented but quiet
     section(
-        f"**📗 文档已记录 · 目前无告警 / In SOP doc — not firing now ({len(idle_documented)})**",
+        f"**📗 文档已记录 · 未出现 / In SOP doc — no alert seen ({len(idle_documented)})**",
         [_idle_line(e) for e in idle_documented],
         "SOP doc is empty — run /kb refresh",
         sep="\n",  # one line each, keep it compact
@@ -538,6 +544,8 @@ def check_sop_card(
         )
 
     note = f"MonitorFlow · AlertBot /check · severity={severity_label}"
+    if scanned:
+        note += f" · scanned {scanned} recent alerts (firing + resolved)"
     if requested_by:
         note += f" · by {requested_by}"
     elements.append(_divider())
@@ -598,6 +606,8 @@ def check_summary_card(
         elements.append({"tag": "div", "text": {"tag": "lark_md", "content": "_None recently_"}})
 
     note = f"MonitorFlow · AlertBot /check · severity={severity_label}"
+    if scanned:
+        note += f" · scanned {scanned} recent alerts (firing + resolved)"
     if requested_by:
         note += f" · by {requested_by}"
     elements.append(_divider())

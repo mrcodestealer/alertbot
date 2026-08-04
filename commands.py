@@ -246,15 +246,17 @@ class CommandHandler:
         processing_id = self.lark.add_reaction(message_id, CONFIG.reaction_processing)
         ok = False
         try:
-            firing, resolved = self._collect()
             if self.kb is not None and self.kb.entries:
-                undoc, doc, idle = self._split_by_sop(firing)
+                alerts = self._collect_all()
+                undoc, doc, idle = self._split_by_sop(alerts)
                 card = cards.check_sop_card(
-                    undoc, doc, idle, resolved,
+                    undoc, doc, idle, None,
                     requested_by=requested_by,
                     severity_label=CONFIG.watch_severity,
+                    scanned=len(alerts),
                 )
             else:
+                firing, resolved = self._collect()
                 # No knowledge base -> fall back to the plain firing/resolved view.
                 card = cards.check_summary_card(
                     firing, resolved,
@@ -292,12 +294,17 @@ class CommandHandler:
         matched_titles: set[str] = set()
         seen: dict[str, dict] = {}
         for alert in firing:
+            is_firing = str(alert.get("status", "")).lower() == "firing"
             name = (alert.get("alert_rule") or alert.get("summary") or "").strip().lower()
             if name and name in seen:
-                seen[name]["count"] += 1
+                item = seen[name]
+                item["count"] += 1
+                if is_firing:
+                    item["firing"] += 1
+                    item["alert"] = alert  # prefer a firing example
                 continue
             verdict = self.kb.lookup(alert)
-            item = {"alert": alert, "verdict": verdict, "count": 1}
+            item = {"alert": alert, "verdict": verdict, "count": 1, "firing": 1 if is_firing else 0}
             if name:
                 seen[name] = item
             if verdict.get("in_docs"):
@@ -337,11 +344,28 @@ class CommandHandler:
             idle.append(e)
 
         rank = {"high": 0, "medium": 1, "low": 2, "unknown": 0}
-        documented.sort(key=lambda i: rank.get(str(i["verdict"].get("importance")).lower(), 3))
+        # Currently-firing names first, then the most frequent.
+        for lst in (undocumented, documented):
+            lst.sort(key=lambda i: (0 if i.get("firing") else 1, -i.get("count", 0)))
+        documented.sort(key=lambda i: (0 if i.get("firing") else 1,
+                                       rank.get(str(i["verdict"].get("importance")).lower(), 3)))
         # Suspected mismatches first — they need action; the rest are just quiet.
         idle.sort(key=lambda e: (0 if e.get("_near") else 1,
                                  rank.get(str(e.get("importance")).lower(), 3)))
         return undocumented, documented, idle
+
+    def _collect_all(self) -> list[dict]:
+        """Recent alerts of the watched severity, firing AND resolved.
+
+        /check answers "which alert names are documented", and a name matters
+        whether or not it happens to be firing at this instant — so scan the
+        recent history rather than only the live firing set.
+        """
+        return self.monitor.list_all_alerts(
+            severity=CONFIG.severity_filter,
+            page_size=CONFIG.monitor_page_size,
+            max_pages=CONFIG.check_lookback_pages,
+        )
 
     def _collect(self) -> tuple[list[dict], list[dict]]:
         """Return (still_firing, resolved) — read-only.
