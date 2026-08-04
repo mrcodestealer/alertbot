@@ -109,9 +109,14 @@ class Config:
     # Max entries listed per /check section. High enough to show everything in
     # practice; it only exists because Lark rejects an over-large card.
     check_max_per_section: int = _int("CHECK_MAX_PER_SECTION", 60)
-    # How many pages of recent alerts /check scans (firing + resolved) when
-    # working out which alert names are documented.
+    # How many pages /check itself scans for CURRENT status. Kept small so the
+    # command answers in seconds; historical names come from the catalogue below.
     check_lookback_pages: int = _int("CHECK_LOOKBACK_PAGES", 4)
+    # Deep background scan that builds the alert-name catalogue. 60 pages x 200
+    # = 12k alerts takes ~2 min, so it runs in the watcher thread on this
+    # interval instead of inside /check. 0 disables it.
+    catalogue_pages: int = _int("CATALOGUE_PAGES", 60)
+    catalogue_refresh_minutes: int = _int("CATALOGUE_REFRESH_MINUTES", 60)
 
     # --- Self-deploy via DM (git pull + restart service) ---
     # OFF by default: this executes shell commands on the server.

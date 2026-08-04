@@ -47,6 +47,8 @@ class Watcher(threading.Thread):
         self.state = state
         self.kb = kb  # KnowledgeBase | None
         self._stop = threading.Event()
+        # Run the first deep catalogue scan shortly after startup.
+        self._last_catalogue = 0.0
 
     def stop(self) -> None:
         self._stop.set()
@@ -130,6 +132,9 @@ class Watcher(threading.Thread):
         # 2b) FYI reminders for alerts still firing past the configured thresholds
         self._check_firing_reminders()
 
+        # 2c) periodically catalogue alert names from deep history
+        self._refresh_catalogue()
+
         # 3) prune + persist
         self.state.prune(CONFIG.state_retention_hours)
         self.state.save()
@@ -167,6 +172,38 @@ class Watcher(threading.Thread):
         except Exception:
             log.exception("Failed to announce alert #%s", aid)
             return False, None
+
+    # -------------------------------------------------------- name catalogue
+    def _refresh_catalogue(self) -> None:
+        """Deep-scan alert history to catalogue every alert NAME.
+
+        Runs here rather than inside /check because 60 pages x 200 rows takes
+        ~2 minutes — fine in the background, far too slow for a chat command.
+        /check then reports coverage from the catalogue instantly.
+        """
+        if CONFIG.catalogue_pages <= 0:
+            return
+        due = self._last_catalogue + CONFIG.catalogue_refresh_minutes * 60
+        if time.time() < due:
+            return
+        self._last_catalogue = time.time()  # set first: a failure shouldn't retry every tick
+        try:
+            started = time.time()
+            alerts = self.monitor.list_all_alerts(
+                severity=CONFIG.severity_filter,
+                page_size=CONFIG.monitor_page_size,
+                max_pages=CONFIG.catalogue_pages,
+            )
+            new = self.state.record_rules(alerts)
+            self.state.prune_seen_rules()
+            self.state.save()
+            log.info(
+                "Catalogue scan: %d alerts over %d page(s) in %.0fs — %d new name(s), %d known",
+                len(alerts), CONFIG.catalogue_pages, time.time() - started, new,
+                len(self.state.seen_rules),
+            )
+        except Exception:
+            log.exception("Catalogue scan failed")
 
     # ------------------------------------------------------ firing reminders
     def _check_firing_reminders(self) -> None:
