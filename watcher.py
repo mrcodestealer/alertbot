@@ -276,6 +276,24 @@ class Watcher(threading.Thread):
         posted_ids = self.state.get_message_ids(alert_id)
         self.state.mark_resolved(alert_id, detail)
 
+        # If someone pressed "Report to SRE" for this alert, reply to that very
+        # message in the SRE group so the people who were tagged get the update.
+        report = self.state.pop_report(alert_id)
+        if report and report.get("message_id"):
+            rule = report.get("rule") or summary.get("alert_rule") or ""
+            try:
+                if self.lark.reply_card(
+                    report["message_id"],
+                    cards.report_resolved_card(rule, report.get("mention") or "team"),
+                    in_thread=False,
+                ):
+                    log.info("Replied 'resolved' to the SRE report for #%s", alert_id)
+                else:
+                    log.warning("Could not reply to the SRE report for #%s", alert_id)
+            except Exception:
+                log.exception("Failed replying to the SRE report for #%s", alert_id)
+        self.state.prune_reports()
+
         action = CONFIG.resolve_action
 
         summary = dict(detail)

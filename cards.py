@@ -324,6 +324,28 @@ def collapsed_card(alert: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def report_resolved_card(rule: str, duty_mention: str) -> dict[str, Any]:
+    """Reply posted in the SRE group when a reported alert recovers, tagging the
+    same duty people who were asked to look at it."""
+    name = _clip(rule, 90)
+    return {
+        "config": {"wide_screen_mode": True},
+        "header": {
+            "title": {"tag": "plain_text", "content": f"{name} resolved"},
+            "template": "green",
+        },
+        "elements": [
+            {
+                "tag": "div",
+                "text": {
+                    "tag": "lark_md",
+                    "content": f"Hi team {duty_mention} FYI {name} is already resolved thank you",
+                },
+            }
+        ],
+    }
+
+
 def resolve_card(alert: dict[str, Any]) -> dict[str, Any]:
     """Card sent when a previously-firing alert has recovered."""
     title = alert.get("alert_rule") or alert.get("summary") or f"Alert #{alert.get('id')}"

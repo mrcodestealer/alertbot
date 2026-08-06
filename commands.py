@@ -95,12 +95,13 @@ class CommandHandler:
         )
         if info.get("error"):
             log.error("Duty lookup failed for report of #%s: %s", alert_id, info["error"])
+        duty_mention = duty_mod.mention(info["names"])
         card = cards.report_card(
             rule=rule,
             alert_id=alert_id,
             domain=domain,
             duty_label=info["label"],
-            duty_mention=duty_mod.mention(info["names"]),
+            duty_mention=duty_mention,
             image_key=image_key,
             duty_error=info.get("error"),
             reported_by=reporter,
@@ -108,6 +109,10 @@ class CommandHandler:
         msg_id = self.lark.send_card(chat, card)
         if msg_id:
             log.info("Report card for #%s posted to %s (message_id=%s)", alert_id, chat, msg_id)
+            # Remember it so the watcher can reply here when the alert recovers.
+            if self.state is not None:
+                self.state.set_report(alert_id, msg_id, duty_mention, rule)
+                self.state.save()
         else:
             log.error(
                 "FAILED to post report card for #%s to chat %s — is the bot a member of that chat?",

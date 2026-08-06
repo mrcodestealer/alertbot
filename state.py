@@ -50,6 +50,9 @@ class State:
         # last_seen,severity,domain}. Lets /check report doc coverage over all
         # history, not just the current scan window.
         self.seen_rules: dict[str, dict[str, Any]] = {}
+        # alert id -> the "Report to SRE" message, so the bot can reply to it
+        # when that alert recovers.
+        self.reports: dict[str, dict[str, Any]] = {}
         self._load()
 
     # --------------------------------------------------------------- persist
@@ -64,6 +67,7 @@ class State:
             self.watched = data.get("watched", {}) or {}
             self.flaps = data.get("flaps", {}) or {}
             self.seen_rules = data.get("seen_rules", {}) or {}
+            self.reports = data.get("reports", {}) or {}
             log.info("Loaded state: last_id=%s, watched=%d", self.last_id, len(self.watched))
         except Exception:  # pragma: no cover - defensive
             log.exception("Failed to load state file; starting fresh")
@@ -73,7 +77,7 @@ class State:
             tmp = self._path.with_suffix(".tmp")
             payload = {"last_id": self.last_id, "seeded": self.seeded,
                        "watched": self.watched, "flaps": self.flaps,
-                       "seen_rules": self.seen_rules}
+                       "seen_rules": self.seen_rules, "reports": self.reports}
             tmp.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
             tmp.replace(self._path)
 
@@ -160,6 +164,34 @@ class State:
     def resolved(self) -> list[dict[str, Any]]:
         with self._lock:
             return [r for r in self.watched.values() if r.get("status") == "resolved"]
+
+    def set_report(self, alert_id: int | str, message_id: str, mention: str, rule: str) -> None:
+        """Remember that an alert was reported to the SRE group, so the bot can
+        reply to that very message when the alert recovers.
+
+        Kept outside `watched` because the alert record is cleared on resolve.
+        """
+        if not message_id:
+            return
+        with self._lock:
+            self.reports[str(alert_id)] = {
+                "message_id": message_id,
+                "mention": mention or "",
+                "rule": rule or "",
+                "at": time.time(),
+            }
+
+    def pop_report(self, alert_id: int | str) -> dict[str, Any] | None:
+        """Fetch and clear the report record for an alert (one reply per report)."""
+        with self._lock:
+            return self.reports.pop(str(alert_id), None)
+
+    def prune_reports(self, max_age_hours: int = 48, now: float | None = None) -> None:
+        now = time.time() if now is None else now
+        cutoff = now - max_age_hours * 3600
+        with self._lock:
+            for k in [k for k, v in self.reports.items() if (v.get("at") or 0) < cutoff]:
+                del self.reports[k]
 
     def record_rules(self, alerts: list[dict[str, Any]], now: float | None = None) -> int:
         """Remember every alert NAME we've seen, with how often and when.
