@@ -115,12 +115,59 @@ class LarkDocsClient:
             log.exception("Image download error for %s", file_token)
             return None
 
+    def resolve_user_names(self, user_ids: set[str]) -> dict[str, str]:
+        """open_id -> display name for people @-mentioned in the doc.
+
+        Tries the contact API first (needs contact:user.base:readonly on the
+        app); falls back to the open_id map collected via /secret1. Anything
+        still unknown renders as a short stable handle.
+        """
+        names: dict[str, str] = {}
+        ids = [u for u in user_ids if u]
+        if not ids:
+            return names
+        try:
+            for i in range(0, len(ids), 50):
+                r = requests.get(
+                    f"{self._base}/contact/v3/users/batch",
+                    headers=self._headers(),
+                    params={"user_ids": ids[i : i + 50], "user_id_type": "open_id"},
+                    timeout=20,
+                )
+                data = r.json()
+                for u in ((data.get("data") or {}).get("items") or []):
+                    name = u.get("name") or u.get("en_name") or u.get("nickname")
+                    if u.get("open_id") and name:
+                        names[u["open_id"]] = name
+        except Exception:
+            log.debug("Contact lookup for doc mentions failed", exc_info=True)
+
+        missing = [u for u in ids if u not in names]
+        if missing:
+            # Reuse the name -> open_id map that /secret1 builds.
+            try:
+                import duty  # noqa: PLC0415
+
+                for name, oid in (duty.load_openids() or {}).items():
+                    if oid in missing and name:
+                        names[oid] = name
+            except Exception:
+                log.debug("open_id map lookup failed", exc_info=True)
+        if len(names) < len(ids):
+            log.info(
+                "Doc mentions: resolved %d/%d name(s). Grant contact:user.base:readonly "
+                "to the app (or add them via /secret1) to show real names.",
+                len(names), len(ids),
+            )
+        return names
+
     # ---------------------------------------------------------------- render
     def get_document(self, wiki_token: str) -> dict[str, Any]:
         """Return {title, doc_token, text, image_tokens, content_hash}."""
         doc_token, title = self.resolve_wiki_node(wiki_token)
         blocks = self.fetch_blocks(doc_token)
-        text, image_tokens = render_blocks(blocks)
+        names = self.resolve_user_names(mention_ids(blocks))
+        text, image_tokens = render_blocks(blocks, names)
         return {
             "title": title,
             "doc_token": doc_token,
@@ -130,7 +177,31 @@ class LarkDocsClient:
         }
 
 
-def _element_text(block: dict[str, Any]) -> str:
+def mention_ids(blocks: list[dict[str, Any]]) -> set[str]:
+    """Every open_id @-mentioned anywhere in the document."""
+    ids: set[str] = set()
+    for b in blocks:
+        for value in b.values():
+            if isinstance(value, dict) and isinstance(value.get("elements"), list):
+                for el in value["elements"]:
+                    if isinstance(el, dict) and "mention_user" in el:
+                        uid = (el["mention_user"] or {}).get("user_id")
+                        if uid:
+                            ids.add(uid)
+    return ids
+
+
+def _mention_label(user_id: str, names: dict[str, str] | None) -> str:
+    """Render an @-mention. Falls back to a short, STABLE handle per person so
+    two different people never both read as a generic '@user'."""
+    if names:
+        name = names.get(user_id)
+        if name:
+            return f"@{name}"
+    return f"@person-{(user_id or '')[-6:]}" if user_id else "@person"
+
+
+def _element_text(block: dict[str, Any], names: dict[str, str] | None = None) -> str:
     """Concatenate the text of a block's inline elements."""
     for value in block.values():
         if isinstance(value, dict) and isinstance(value.get("elements"), list):
@@ -141,14 +212,20 @@ def _element_text(block: dict[str, Any]) -> str:
                 if "text_run" in el:
                     out.append(el["text_run"].get("content", ""))
                 elif "mention_user" in el:
-                    out.append("@user")
+                    # Lark stores mentions as their own element with no
+                    # surrounding spaces, so pad them — otherwise the text reads
+                    # "SRE and@person-2a9df0still need time".
+                    label = _mention_label((el["mention_user"] or {}).get("user_id", ""), names)
+                    if out and out[-1] and not out[-1][-1].isspace():
+                        label = " " + label
+                    out.append(label + " ")
                 elif "equation" in el:
                     out.append(el["equation"].get("content", ""))
             return "".join(out)
     return ""
 
 
-def render_blocks(blocks: list[dict[str, Any]]) -> tuple[str, list[str]]:
+def render_blocks(blocks: list[dict[str, Any]], names: dict[str, str] | None = None) -> tuple[str, list[str]]:
     """Render docx blocks to markdown-ish text + the list of image tokens."""
     lines: list[str] = []
     images: list[str] = []
@@ -160,7 +237,7 @@ def render_blocks(blocks: list[dict[str, Any]]) -> tuple[str, list[str]]:
                 images.append(tok)
                 lines.append(f"[IMAGE:{tok}]")
             continue
-        text = _element_text(b).strip()
+        text = _element_text(b, names).strip()
         if not text:
             continue
         if bt in _HEADING_TYPES:
