@@ -115,6 +115,30 @@ class LarkDocsClient:
             log.exception("Image download error for %s", file_token)
             return None
 
+    def _names_from_chats(self, wanted: set[str]) -> dict[str, str]:
+        """open_id -> name, read from the member lists of chats the bot is in."""
+        out: dict[str, str] = {}
+        r = requests.get(
+            f"{self._base}/im/v1/chats", headers=self._headers(),
+            params={"page_size": 100}, timeout=20,
+        ).json()
+        for chat in ((r.get("data") or {}).get("items") or []):
+            if not wanted:
+                break
+            cid = chat.get("chat_id")
+            if not cid:
+                continue
+            m = requests.get(
+                f"{self._base}/im/v1/chats/{cid}/members", headers=self._headers(),
+                params={"member_id_type": "open_id", "page_size": 100}, timeout=20,
+            ).json()
+            for item in ((m.get("data") or {}).get("items") or []):
+                oid, name = item.get("member_id"), item.get("name")
+                if oid in wanted and name:
+                    out[oid] = name
+                    wanted.discard(oid)
+        return out
+
     def resolve_user_names(self, user_ids: set[str]) -> dict[str, str]:
         """open_id -> display name for people @-mentioned in the doc.
 
@@ -153,6 +177,17 @@ class LarkDocsClient:
                         names[oid] = name
             except Exception:
                 log.debug("open_id map lookup failed", exc_info=True)
+
+        missing = [u for u in ids if u not in names]
+        if missing:
+            # Member lists of chats the bot belongs to carry display names and
+            # need no extra scope, so names appear automatically for anyone in a
+            # shared group.
+            try:
+                for oid, name in self._names_from_chats(set(missing)).items():
+                    names[oid] = name
+            except Exception:
+                log.debug("chat-member lookup failed", exc_info=True)
         if len(names) < len(ids):
             log.info(
                 "Doc mentions: resolved %d/%d name(s). Grant contact:user.base:readonly "
