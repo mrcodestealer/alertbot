@@ -210,45 +210,56 @@ class Watcher(threading.Thread):
 
     # ------------------------------------------------------ firing reminders
     def _check_firing_reminders(self) -> None:
-        """For each still-firing alert that has an announced firing card, post an
-        FYI reply in its thread once it crosses each configured duration threshold."""
-        if not CONFIG.firing_reminder_minutes or not CONFIG.lark_alert_chat_id:
+        """Re-post an alert every FIRING_REPEAT_MINUTES while it stays firing.
+
+        A NEW message is sent (rather than updating the old card) so the chat
+        actually notifies people again; the card is titled "(Firing 30 minutes)"
+        so it's clear how long it's been going. Earlier cards are left as they
+        are — the newest one is the live view.
+        """
+        interval = CONFIG.firing_repeat_minutes
+        if interval <= 0 or not CONFIG.lark_alert_chat_id:
             return
         now = datetime.now(timezone.utc)
         for rec in self.state.firing():
-            msg_id = rec.get("firing_message_id")
-            if not msg_id:
-                continue  # never announced with a card; nothing to thread under
+            if not rec.get("firing_message_id"):
+                continue  # never announced
             created = _parse_dt(rec.get("created_at"))
             if created is None:
                 continue
             age_min = (now - created).total_seconds() / 60.0
+            milestone = int(age_min // interval) * interval
+            if milestone < interval:
+                continue
             already = set(rec.get("reminded", []))
-            for threshold in CONFIG.firing_reminder_minutes:
-                if threshold in already or age_min < threshold:
-                    continue
-                aid = rec.get("id")
-                log.info("Firing reminder (%dm) for alert #%s (age %.1fm)", threshold, aid, age_min)
-                # Update the existing card in place — posting a threaded reply
-                # would leave a second message that can't be removed cleanly
-                # once the alert resolves.
-                verdict = None
-                if self.kb is not None:
-                    try:
-                        verdict = self.kb.lookup(rec)
-                    except Exception:
-                        log.exception("KB lookup failed for #%s", aid)
-                card = cards.new_alert_card(
-                    rec,
-                    image_key=rec.get("image_key"),
-                    kb_verdict=verdict,
-                    firing_minutes=threshold,
-                )
-                if self.lark.patch_card(msg_id, card):
-                    self.state.add_reminded(aid, threshold)
-                    self.state.save()  # persist so a crash can't re-send the reminder
-                else:
-                    log.warning("Firing reminder update failed for #%s (%dm)", aid, threshold)
+            if milestone in already:
+                continue
+            aid = rec.get("id")
+            # Only the newest milestone: after downtime, don't replay 15/30/45.
+            log.info("Alert #%s still firing at %d min — re-posting", aid, milestone)
+
+            verdict = None
+            if self.kb is not None:
+                try:
+                    verdict = self.kb.lookup(rec)
+                except Exception:
+                    log.exception("KB lookup failed for #%s", aid)
+            card = cards.new_alert_card(
+                rec,
+                image_key=rec.get("image_key"),
+                kb_verdict=verdict,
+                firing_minutes=milestone,
+            )
+            new_id = self.lark.send_card(CONFIG.lark_alert_chat_id, card)
+            if new_id:
+                # Track it so it can be collapsed when the alert resolves, and
+                # mark every milestone up to now as done.
+                self.state.add_message_id(aid, new_id)
+                for m in range(interval, milestone + 1, interval):
+                    self.state.add_reminded(aid, m)
+                self.state.save()  # persist so a crash can't re-post it
+            else:
+                log.warning("Could not re-post alert #%s at %d min", aid, milestone)
 
     def _handle_possible_resolution(self, alert_id) -> None:
         try:
@@ -276,16 +287,17 @@ class Watcher(threading.Thread):
         summary["flap_count"] = self.state.record_flap(rule, window)
         self.state.prune_flaps(window)
 
-        # "collapse": rewrite the card in place. Leaves no "recalled" notice.
-        if action == "collapse" and firing_msg_id:
+        # "collapse": rewrite the cards in place. Leaves no "recalled" notice.
+        if action == "collapse" and posted_ids:
+            # The alert may have been re-posted every N minutes while firing.
+            # The newest card carries the full resolved summary; the earlier
+            # ones shrink to a marker so they stop saying "still firing".
+            latest = posted_ids[-1]
             small = cards.collapsed_card(summary)
-            if self.lark.patch_card(firing_msg_id, small):
-                # Collapse the threaded "still firing" reminders to a bare
-                # marker — reusing `small` here would repeat the whole resolved
-                # card inside the thread.
+            if self.lark.patch_card(latest, small):
                 marker = cards.collapsed_reminder_card()
                 for mid in posted_ids:
-                    if mid != firing_msg_id:
+                    if mid != latest:
                         self.lark.patch_card(mid, marker)
                 log.info("Alert #%s resolved — card collapsed in place", alert_id)
                 if CONFIG.clear_resolved:

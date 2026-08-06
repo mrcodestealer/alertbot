@@ -76,6 +76,10 @@ class Config:
     # Post an FYI reminder in the alert's thread when it has been firing this long
     # (minutes). Comma-separated for multiple, e.g. "15,30,60". Empty = off.
     firing_reminder_minutes: list[int] = field(default_factory=lambda: _int_list("FIRING_REMINDER_MINUTES", "15"))
+    # While an alert keeps firing, re-post it as a NEW card every N minutes
+    # ("(Firing 15 minutes)", "(Firing 30 minutes)", …) so the chat notifies
+    # people again. 0 disables the repeats.
+    firing_repeat_minutes: int = _int("FIRING_REPEAT_MINUTES", 15)
     # On first startup, announce the alerts that are already firing?
     announce_backlog_on_start: bool = _bool("ANNOUNCE_BACKLOG_ON_START", False)
     notify_on_resolve: bool = _bool("NOTIFY_ON_RESOLVE", True)

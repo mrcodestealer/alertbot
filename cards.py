@@ -123,7 +123,7 @@ def new_alert_card(
     # just not rendered, because the screenshot already shows them.
     head = f"{_emoji(alert)} **{alert.get('severity', '-')}** · Alert ID `{alert.get('id', '-')}`"
     if firing_minutes:
-        head += f"\n⏰ **Still firing for {firing_minutes} min — not recovered yet**"
+        head += f"\n⏰ **Not recovered yet — still firing after {firing_minutes} minutes**"
     elements: list[dict[str, Any]] = [
         {"tag": "div", "text": {"tag": "lark_md", "content": head}},
     ]
@@ -176,10 +176,13 @@ def new_alert_card(
         }
     )
 
+    header_title = f"🔥 {title}"
+    if firing_minutes:
+        header_title += f" (Firing {firing_minutes} minutes)"
     return {
         "config": {"wide_screen_mode": True},
         "header": {
-            "title": {"tag": "plain_text", "content": f"🔥 {title}"},
+            "title": {"tag": "plain_text", "content": header_title},
             "template": _color(alert),
         },
         "elements": elements,
