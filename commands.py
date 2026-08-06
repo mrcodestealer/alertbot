@@ -113,11 +113,49 @@ class CommandHandler:
             if self.state is not None:
                 self.state.set_report(alert_id, msg_id, duty_mention, rule)
                 self.state.save()
+            self._file_in_tracker(alert_id, domain, rule, info)
         else:
             log.error(
                 "FAILED to post report card for #%s to chat %s — is the bot a member of that chat?",
                 alert_id, chat,
             )
+
+    def _file_in_tracker(self, alert_id: str, domain: str, rule: str, duty_info: dict) -> None:
+        """Also file the reported alert in the Lark Base alerts tracker.
+
+        Best-effort: the report card has already been posted, so a tracker
+        failure must never surface as a failed report.
+        """
+        if not CONFIG.tracker_enabled:
+            return
+        try:
+            import duty as duty_mod  # noqa: PLC0415
+            from tracker import AlertsTracker  # noqa: PLC0415
+
+            # Full detail (description, created_at) comes from the dashboard;
+            # the button payload only carries the essentials.
+            alert = {"id": alert_id, "alert_rule": rule, "domain": domain}
+            try:
+                if self.monitor is not None:
+                    alert = {**self.monitor.get_alert(alert_id), "domain": domain}
+            except Exception:
+                log.warning("Tracker: could not fetch #%s detail; filing what we have", alert_id)
+
+            mapping = duty_mod.load_openids()
+            open_ids = [
+                oid for oid in (duty_mod.resolve_openid(n, mapping) for n in duty_info.get("names") or [])
+                if oid
+            ]
+            shot = CONFIG.screenshot_dir / f"alert_{alert_id}.png"
+            rid = AlertsTracker().add_alert(
+                alert,
+                duty_open_ids=open_ids,
+                screenshot_path=str(shot) if shot.exists() else None,
+            )
+            if rid:
+                log.info("Tracker: filed #%s as record %s", alert_id, rid)
+        except Exception:
+            log.exception("Tracker: failed to file #%s (report card was still sent)", alert_id)
 
     # ----------------------------------------------------------------- /duty
     def handle_duty(self, message_id: str, arg: str = "") -> None:

@@ -160,6 +160,16 @@ class Config:
         default_factory=lambda: BASE_DIR / os.getenv("DUTY_OPENID_FILE", "duty_openids.json")
     )
 
+    # --- Alerts tracker (Lark Base) ---
+    # Pressing "Report to OSE & SRE group" also files the alert in the tracker.
+    # One table per month; the Platform/DB views are the same table filtered on
+    # the Platform field.
+    tracker_enabled: bool = _bool("TRACKER_ENABLED", True)
+    tracker_app_token: str = os.getenv("TRACKER_APP_TOKEN", "XwJVbYXH7aiVdMsE8hgly3xJgkf")
+    tracker_table_id: str = os.getenv("TRACKER_TABLE_ID", "tblg3xYBy31GyTlT")
+    # Table whose columns are copied when a new month's table has to be created.
+    tracker_template_table: str = os.getenv("TRACKER_TEMPLATE_TABLE", "tblg3xYBy31GyTlT")
+
     # --- Knowledge base (SOP doc -> monitorflow.json) ---
     kb_enabled: bool = _bool("KB_ENABLED", True)
     # Lark Wiki node token from the doc URL (…/wiki/<TOKEN>).
