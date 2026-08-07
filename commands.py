@@ -88,10 +88,29 @@ class CommandHandler:
             log.error("Report requested but no REPORT_CHAT_ID / LARK_ALERT_CHAT_ID configured")
             return
 
+        # Pull the alert once: used for the "already firing N minutes" line and
+        # for the tracker record.
+        detail: dict = {}
+        try:
+            if self.monitor is not None:
+                detail = self.monitor.get_alert(alert_id) or {}
+        except Exception:
+            log.warning("Report: could not fetch #%s detail", alert_id)
+
+        firing_minutes = None
+        created = cards._parse_dt(detail.get("created_at")) if detail else None
+        if created is not None:
+            from datetime import datetime, timezone  # noqa: PLC0415
+
+            firing_minutes = int((datetime.now(timezone.utc) - created).total_seconds() // 60)
+            if firing_minutes < 1:
+                firing_minutes = None
+
         info = duty_mod.get_duty(domain)
         log.info(
-            "Report alert #%s domain=%s -> chat=%s team=%s names=%s error=%s by=%s",
-            alert_id, domain, chat, info["label"], info["names"], info.get("error"), reporter,
+            "Report alert #%s domain=%s firing=%smin -> chat=%s team=%s names=%s error=%s by=%s",
+            alert_id, domain, firing_minutes, chat, info["label"], info["names"],
+            info.get("error"), reporter,
         )
         if info.get("error"):
             log.error("Duty lookup failed for report of #%s: %s", alert_id, info["error"])
@@ -105,6 +124,7 @@ class CommandHandler:
             image_key=image_key,
             duty_error=info.get("error"),
             reported_by=reporter,
+            firing_minutes=firing_minutes,
         )
         msg_id = self.lark.send_card(chat, card)
         if msg_id:
@@ -113,14 +133,15 @@ class CommandHandler:
             if self.state is not None:
                 self.state.set_report(alert_id, msg_id, duty_mention, rule)
                 self.state.save()
-            self._file_in_tracker(alert_id, domain, rule, info)
+            self._file_in_tracker(alert_id, domain, rule, info, detail)
         else:
             log.error(
                 "FAILED to post report card for #%s to chat %s — is the bot a member of that chat?",
                 alert_id, chat,
             )
 
-    def _file_in_tracker(self, alert_id: str, domain: str, rule: str, duty_info: dict) -> None:
+    def _file_in_tracker(self, alert_id: str, domain: str, rule: str, duty_info: dict,
+                         detail: dict | None = None) -> None:
         """Also file the reported alert in the Lark Base alerts tracker.
 
         Best-effort: the report card has already been posted, so a tracker
@@ -134,12 +155,9 @@ class CommandHandler:
 
             # Full detail (description, created_at) comes from the dashboard;
             # the button payload only carries the essentials.
-            alert = {"id": alert_id, "alert_rule": rule, "domain": domain}
-            try:
-                if self.monitor is not None:
-                    alert = {**self.monitor.get_alert(alert_id), "domain": domain}
-            except Exception:
-                log.warning("Tracker: could not fetch #%s detail; filing what we have", alert_id)
+            alert = {**(detail or {}), "domain": domain} if detail else {
+                "id": alert_id, "alert_rule": rule, "domain": domain
+            }
 
             mapping = duty_mod.load_openids()
             open_ids = [

@@ -199,6 +199,7 @@ def report_card(
     image_key: str | None = None,
     duty_error: str | None = None,
     reported_by: str | None = None,
+    firing_minutes: int | None = None,
 ) -> dict[str, Any]:
     """Card posted to the SRE chat when someone presses 'Report to SRE'."""
     # Deliberately minimal: the alert name is the card title, then the screenshot,
@@ -229,6 +230,13 @@ def report_card(
             f"⚠️ **Could not reach the {duty_label} roster** — {_clip(duty_error, 160)}\n"
             "Kindly check this alert, thank you.\n"
             "_(fix: check APP_ID / APP_SECRET / OSE_SPREADSHEET_TOKEN in .env, then `/duty`)_"
+        )
+    elif firing_minutes:
+        # Say how long it has been burning — the duty person shouldn't have to
+        # work that out from the alert's timestamp.
+        greeting = (
+            f"Hi {duty_mention} kindly check this alert it is already firing "
+            f"{firing_minutes} minutes thank you"
         )
     else:
         greeting = f"Hi {duty_mention} kindly check this alert thank you"
