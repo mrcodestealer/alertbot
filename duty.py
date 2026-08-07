@@ -297,9 +297,9 @@ def roster() -> dict[str, list[str]]:
     Only the BACKEND section of the SRE roster is included: the frontend team
     isn't tagged for platform alerts.
     """
-    out: dict[str, list[str]] = {"sre_backend": [], "db": []}
+    out: dict[str, list[str]] = {"sre_backend": [], "db": [], "liveslot": []}
     try:
-        sre_mod, db_mod, _ls = _load_modules()
+        sre_mod, db_mod, ls_mod = _load_modules()
         for title, members in getattr(sre_mod, "SRE_TEAMS", []):
             if (SRE_SECTION or "BACKEND").upper() in str(title).upper():
                 out["sre_backend"] = [m for m in members if not is_excluded(m)]
@@ -307,6 +307,12 @@ def roster() -> dict[str, list[str]]:
             m.get("name", "")
             for m in getattr(db_mod, "TARGET_DUTY", [])
             if m.get("name") and not is_excluded(m.get("name", ""))
+        ]
+        # liveslot_duty uses {"display", "lookup"}; the sheet shows "display".
+        out["liveslot"] = [
+            m.get("display") or m.get("lookup") or ""
+            for m in getattr(ls_mod, "TARGET_DUTY", [])
+            if (m.get("display") or m.get("lookup")) and not is_excluded(m.get("display") or "")
         ]
     except Exception:
         log.exception("Could not read duty rosters")

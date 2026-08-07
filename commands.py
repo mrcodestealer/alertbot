@@ -190,7 +190,7 @@ class CommandHandler:
         # "/duty all" -> check the WHOLE roster, not just who is on duty today.
         if arg.strip().lower() in ("all", "roster", "check"):
             cov = duty_mod.roster_coverage()
-            labels = {"sre_backend": "SRE Backend Team", "db": "DB Team"}
+            labels = {"sre_backend": "SRE Backend Team", "db": "DB Team", "liveslot": "LiveSlot Team"}
             blocks = []
             for team, rows in cov["teams"].items():
                 if not rows:
@@ -215,7 +215,7 @@ class CommandHandler:
             )
             return
 
-        domains = [arg.strip().upper()] if arg.strip() else ["PLATFORM", "DB"]
+        domains = [arg.strip().upper()] if arg.strip() else ["PLATFORM", "DB", "LIVESLOTS"]
         blocks: list[str] = []
         missing = False
         for dom in domains:
