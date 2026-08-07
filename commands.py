@@ -106,7 +106,10 @@ class CommandHandler:
             if firing_minutes < 1:
                 firing_minutes = None
 
-        info = duty_mod.get_duty(domain)
+        # Route by alert content first (e.g. anything LiveSlots pages LiveSlot
+        # duty), falling back to the Domain.
+        content = duty_mod.alert_content(detail) or rule
+        info = duty_mod.get_duty(domain, content)
         log.info(
             "Report alert #%s domain=%s firing=%smin -> chat=%s team=%s names=%s error=%s by=%s",
             alert_id, domain, firing_minutes, chat, info["label"], info["names"],

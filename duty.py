@@ -42,7 +42,18 @@ DOMAIN_TEAM = {
 }
 DEFAULT_TEAM = "sre"
 
-TEAM_LABEL = {"sre": "Platform SRE duty (Backend Team)", "db": "DB duty"}
+# Some alerts belong to a team regardless of their Domain — a LiveSlots node
+# alert is filed under PLATFORM but should page the LiveSlot duty. Matched
+# against the alert's rule + instance + description. Checked before the Domain.
+KEYWORD_TEAM: list[tuple[str, str]] = [
+    ("liveslot", "liveslot"),
+]
+
+TEAM_LABEL = {
+    "sre": "Platform SRE duty (Backend Team)",
+    "db": "DB duty",
+    "liveslot": "LiveSlot duty",
+}
 
 # Only this section of the SRE roster is tagged for platform alerts — the
 # frontend team does not handle them. Blank = tag everyone on the roster.
@@ -58,22 +69,43 @@ class DutyLookupError(RuntimeError):
 _import_lock = threading.Lock()
 _sre_mod = None
 _db_mod = None
+_ls_mod = None
 
 
 def _load_modules():
     """Import the copied dutybot modules lazily (they hit the network on use)."""
-    global _sre_mod, _db_mod
+    global _sre_mod, _db_mod, _ls_mod
     with _import_lock:
-        if _sre_mod is None or _db_mod is None:
+        if _sre_mod is None or _db_mod is None or _ls_mod is None:
             import db_duty as _db  # noqa: PLC0415
+            import liveslot_duty as _ls  # noqa: PLC0415
             import sre_Duty as _sre  # noqa: PLC0415
 
-            _sre_mod, _db_mod = _sre, _db
-    return _sre_mod, _db_mod
+            _sre_mod, _db_mod, _ls_mod = _sre, _db, _ls
+    return _sre_mod, _db_mod, _ls_mod
 
 
 def team_for_domain(domain: str | None) -> str:
     return DOMAIN_TEAM.get((domain or "").strip().upper(), DEFAULT_TEAM)
+
+
+def alert_content(alert: dict[str, Any] | None) -> str:
+    """The text searched for team keywords: rule + instance + description."""
+    if not alert:
+        return ""
+    return " ".join(
+        str(alert.get(k) or "")
+        for k in ("alert_rule", "summary", "instance", "description")
+    )
+
+
+def team_for_alert(domain: str | None, content: str = "") -> str:
+    """Route by content keyword first (e.g. anything LiveSlots), then Domain."""
+    text = (content or "").lower()
+    for keyword, team in KEYWORD_TEAM:
+        if keyword in text:
+            return team
+    return team_for_domain(domain)
 
 
 def _clean_name(line: str) -> str | None:
@@ -129,9 +161,14 @@ def parse_names(duty_text: str, *, only_section: str | None = None) -> list[str]
     return names
 
 
-def get_duty(domain: str | None = None) -> dict[str, Any]:
-    """Return {team, label, text, names, error} for the given alert Domain."""
-    team = team_for_domain(domain)
+def get_duty(domain: str | None = None, content: str = "") -> dict[str, Any]:
+    """Return {team, label, text, names, error} for an alert.
+
+    ``content`` is the alert's text (rule/instance/description); a keyword in it
+    can override the Domain — e.g. a LiveSlots node alert pages LiveSlot duty
+    even though its Domain is PLATFORM.
+    """
+    team = team_for_alert(domain, content)
     result: dict[str, Any] = {
         "team": team,
         "label": TEAM_LABEL.get(team, team.upper()),
@@ -143,10 +180,13 @@ def get_duty(domain: str | None = None) -> dict[str, Any]:
         result["error"] = "duty lookup disabled (DUTY_ENABLED=false)"
         return result
     try:
-        sre_mod, db_mod = _load_modules()
+        sre_mod, db_mod, ls_mod = _load_modules()
         if team == "db":
             text = db_mod.get_db_day_duty(datetime.now().date())
             section = None  # DB roster has no team sections
+        elif team == "liveslot":
+            text = ls_mod.get_day_duty(datetime.now().date())
+            section = None  # LiveSlot roster has no team sections
         else:
             text = sre_mod.get_sre_today_duty()
             section = SRE_SECTION or None
@@ -259,7 +299,7 @@ def roster() -> dict[str, list[str]]:
     """
     out: dict[str, list[str]] = {"sre_backend": [], "db": []}
     try:
-        sre_mod, db_mod = _load_modules()
+        sre_mod, db_mod, _ls = _load_modules()
         for title, members in getattr(sre_mod, "SRE_TEAMS", []):
             if (SRE_SECTION or "BACKEND").upper() in str(title).upper():
                 out["sre_backend"] = [m for m in members if not is_excluded(m)]
