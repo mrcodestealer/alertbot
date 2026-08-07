@@ -89,6 +89,20 @@ def team_for_domain(domain: str | None) -> str:
     return DOMAIN_TEAM.get((domain or "").strip().upper(), DEFAULT_TEAM)
 
 
+def report_button_text(team: str) -> str:
+    """Label for the report button, so it names the group it will post to."""
+    if team == "liveslot":
+        return CONFIG.report_button_text_liveslot
+    return CONFIG.report_button_text
+
+
+def report_chat_for(team: str) -> str:
+    """Chat a report goes to. LiveSlots can have its own; otherwise the default."""
+    if team == "liveslot" and CONFIG.report_chat_id_liveslot:
+        return CONFIG.report_chat_id_liveslot
+    return CONFIG.report_chat_id or CONFIG.lark_alert_chat_id
+
+
 def alert_content(alert: dict[str, Any] | None) -> str:
     """The text searched for team keywords: rule + instance + description."""
     if not alert:

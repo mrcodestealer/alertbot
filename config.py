@@ -144,8 +144,13 @@ class Config:
     ose_sheet_id: str = os.getenv("OSE_SHEET_ID", "AS33r7")
     # Chat that the report button posts into (defaults to the alert chat).
     report_chat_id: str = os.getenv("REPORT_CHAT_ID", "") or os.getenv("LARK_ALERT_CHAT_ID", "")
-    # Label on the report button.
+    # Label on the report button, and the LiveSlots variant.
     report_button_text: str = os.getenv("REPORT_BUTTON_TEXT", "Report to OSE & SRE group(testing)")
+    report_button_text_liveslot: str = os.getenv(
+        "REPORT_BUTTON_TEXT_LIVESLOT", "Report to Liveslot SRE - OSE 讨论群"
+    )
+    # Optional: post LiveSlots reports to a different chat. Blank = same chat.
+    report_chat_id_liveslot: str = os.getenv("REPORT_CHAT_ID_LIVESLOT", "")
     # People to never tag (leavers). Kept here rather than editing the copied
     # dutybot modules, so those stay re-copyable. Comma-separated.
     duty_exclude: list[str] = field(

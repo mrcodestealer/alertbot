@@ -110,6 +110,7 @@ def new_alert_card(
     image_key: str | None = None,
     kb_verdict: dict[str, Any] | None = None,
     firing_minutes: int | None = None,
+    button_text: str | None = None,
 ) -> dict[str, Any]:
     """Card for a firing alert.
 
@@ -154,7 +155,7 @@ def new_alert_card(
             "actions": [
                 {
                     "tag": "button",
-                    "text": {"tag": "plain_text", "content": CONFIG.report_button_text},
+                    "text": {"tag": "plain_text", "content": button_text or CONFIG.report_button_text},
                     "type": "primary",
                     "value": {
                         "action": "report_sre",

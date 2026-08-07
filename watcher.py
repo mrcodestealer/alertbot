@@ -169,12 +169,26 @@ class Watcher(threading.Thread):
             shot = capture_alert_detail(aid)
             if shot:
                 image_key = self.lark.upload_image(shot)
-            card = cards.new_alert_card(alert, image_key=image_key, kb_verdict=verdict)
+            card = cards.new_alert_card(
+                alert, image_key=image_key, kb_verdict=verdict,
+                button_text=self._button_text(alert),
+            )
             msg_id = self.lark.send_card(CONFIG.lark_alert_chat_id, card)
             return (msg_id is not None), msg_id, image_key
         except Exception:
             log.exception("Failed to announce alert #%s", aid)
             return False, None, None
+
+    def _button_text(self, alert: dict) -> str:
+        """Report-button label naming the group the alert will be sent to."""
+        try:
+            import duty as duty_mod  # noqa: PLC0415
+
+            team = duty_mod.team_for_alert(alert.get("domain"), duty_mod.alert_content(alert))
+            return duty_mod.report_button_text(team)
+        except Exception:
+            log.debug("Could not pick a report button label", exc_info=True)
+            return CONFIG.report_button_text
 
     # -------------------------------------------------------- name catalogue
     def _refresh_catalogue(self) -> None:
@@ -249,6 +263,7 @@ class Watcher(threading.Thread):
                 image_key=rec.get("image_key"),
                 kb_verdict=verdict,
                 firing_minutes=milestone,
+                button_text=self._button_text(rec),
             )
             new_id = self.lark.send_card(CONFIG.lark_alert_chat_id, card)
             if new_id:

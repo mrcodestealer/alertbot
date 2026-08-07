@@ -83,11 +83,6 @@ class CommandHandler:
         rule = value.get("rule") or f"Alert #{alert_id}"
         image_key = value.get("image_key") or None
 
-        chat = CONFIG.report_chat_id or CONFIG.lark_alert_chat_id
-        if not chat:
-            log.error("Report requested but no REPORT_CHAT_ID / LARK_ALERT_CHAT_ID configured")
-            return
-
         # Pull the alert once: used for the "already firing N minutes" line and
         # for the tracker record.
         detail: dict = {}
@@ -110,6 +105,11 @@ class CommandHandler:
         # duty), falling back to the Domain.
         content = duty_mod.alert_content(detail) or rule
         info = duty_mod.get_duty(domain, content)
+        # LiveSlots reports can go to their own group (REPORT_CHAT_ID_LIVESLOT).
+        chat = duty_mod.report_chat_for(info["team"])
+        if not chat:
+            log.error("Report requested but no REPORT_CHAT_ID / LARK_ALERT_CHAT_ID configured")
+            return
         log.info(
             "Report alert #%s domain=%s firing=%smin -> chat=%s team=%s names=%s error=%s by=%s",
             alert_id, domain, firing_minutes, chat, info["label"], info["names"],
