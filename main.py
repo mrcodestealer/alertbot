@@ -278,6 +278,15 @@ def main() -> int:
     except Exception:
         log.exception("Initial MonitorFlow login failed (will retry in watcher)")
 
+    # Learn duty open_ids from past tracker records, so @-mentions work without
+    # running /secret1 for everyone.
+    if CONFIG.duty_enabled:
+        try:
+            import duty as _duty
+            _duty.sync_openids_from_tracker()
+        except Exception:
+            log.exception("Could not sync duty open_ids from the tracker")
+
     Watcher(monitor, lark_client, state, knowledge).start()
 
     # Knowledge base: hourly sync of the SOP wiki doc -> monitorflow.json.

@@ -145,6 +145,39 @@ class AlertsTracker:
                         return o.get("name")
         return None
 
+    def harvest_duty_open_ids(self, max_tables: int = 40) -> dict[str, str]:
+        """name -> open_id, read from the tracker's `SRE Duty` people fields.
+
+        Existing records already name the duty person AND carry their open_id, so
+        the tracker doubles as a directory — no contact scope and no manual
+        /secret1 needed for anyone who has appeared on a past alert.
+        """
+        out: dict[str, str] = {}
+        try:
+            tables = self.list_tables()
+        except Exception:
+            log.debug("Tracker: could not list tables for open_id harvest", exc_info=True)
+            return out
+        # Every monthly table: rosters change, so scan them all (startup only).
+        for t in list(reversed(tables))[:max_tables]:
+            tid = t.get("table_id")
+            if not tid:
+                continue
+            try:
+                items = self._api(
+                    "GET", f"/bitable/v1/apps/{CONFIG.tracker_app_token}/tables/{tid}/records",
+                    params={"page_size": 500},
+                ).get("items") or []
+            except Exception:
+                continue
+            for rec in items:
+                for person in (rec.get("fields") or {}).get("SRE Duty") or []:
+                    uid = person.get("id")
+                    name = person.get("name") or person.get("en_name")
+                    if uid and name:
+                        out.setdefault(name.strip(), uid)
+        return out
+
     # ----------------------------------------------------------------- media
     def upload_image(self, path: str) -> str | None:
         """Upload a screenshot for the Image Attachment field."""

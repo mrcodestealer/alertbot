@@ -257,6 +257,33 @@ def remember_openids(pairs: dict[str, str]) -> dict[str, str]:
     return mapping
 
 
+def sync_openids_from_tracker() -> int:
+    """Seed the open_id map from the alerts tracker's `SRE Duty` fields.
+
+    Saves running /secret1 for everyone: past tracker records already pair each
+    duty person's name with their open_id. Returns how many new names were added.
+    """
+    if not CONFIG.tracker_enabled:
+        return 0
+    try:
+        from tracker import AlertsTracker  # noqa: PLC0415
+
+        harvested = AlertsTracker().harvest_duty_open_ids()
+    except Exception:
+        log.debug("Could not harvest open_ids from the tracker", exc_info=True)
+        return 0
+    if not harvested:
+        return 0
+    existing = load_openids()
+    known = {_norm(k) for k in existing}
+    fresh = {n: oid for n, oid in harvested.items() if _norm(n) not in known}
+    if fresh:
+        remember_openids(fresh)
+        log.info("Duty: learned %d open_id(s) from the tracker: %s",
+                 len(fresh), ", ".join(sorted(fresh)))
+    return len(fresh)
+
+
 def _norm(name: str) -> str:
     return re.sub(r"\s+", "", (name or "").lower())
 
