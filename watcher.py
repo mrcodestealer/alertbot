@@ -328,10 +328,12 @@ class Watcher(threading.Thread):
             latest = posted_ids[-1]
             small = cards.collapsed_card(summary)
             if self.lark.patch_card(latest, small):
-                marker = cards.collapsed_reminder_card()
+                # Every card for this alert gets the same resolved summary: a
+                # bare "✅ resolved" on the earlier ones doesn't say WHICH alert
+                # recovered, which is useless when scrolling back.
                 for mid in posted_ids:
                     if mid != latest:
-                        self.lark.patch_card(mid, marker)
+                        self.lark.patch_card(mid, small)
                 log.info("Alert #%s resolved — card collapsed in place", alert_id)
                 if CONFIG.clear_resolved:
                     self.state.forget(alert_id)
