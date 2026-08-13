@@ -144,8 +144,13 @@ class Config:
     ose_sheet_id: str = os.getenv("OSE_SHEET_ID", "AS33r7")
     # Chat that the report button posts into (defaults to the alert chat).
     report_chat_id: str = os.getenv("REPORT_CHAT_ID", "") or os.getenv("LARK_ALERT_CHAT_ID", "")
+    # DB and Platform reports go to the OSE & SRE group. Blank falls back to
+    # REPORT_CHAT_ID / the alert chat.
+    report_chat_id_ose: str = os.getenv(
+        "REPORT_CHAT_ID_OSE", "oc_7713b00dc15c884caf5ee615ef948ef3"
+    )
     # Label on the report button, and the LiveSlots variant.
-    report_button_text: str = os.getenv("REPORT_BUTTON_TEXT", "Report to OSE & SRE group(testing)")
+    report_button_text: str = os.getenv("REPORT_BUTTON_TEXT", "Report to OSE & SRE group")
     report_button_text_liveslot: str = os.getenv(
         "REPORT_BUTTON_TEXT_LIVESLOT", "Report to Liveslot SRE - OSE 讨论群"
     )

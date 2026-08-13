@@ -55,6 +55,10 @@ TEAM_LABEL = {
     "liveslot": "LiveSlot duty",
 }
 
+# Teams whose reports are posted to the OSE & SRE group: Platform alerts route
+# to "sre" (also the fallback team), DB alerts to "db". LiveSlots has its own.
+OSE_REPORT_TEAMS = frozenset({"sre", "db"})
+
 # Only this section of the SRE roster is tagged for platform alerts — the
 # frontend team does not handle them. Blank = tag everyone on the roster.
 SRE_SECTION = os.getenv("SRE_DUTY_SECTION", "BACKEND").strip()
@@ -97,9 +101,15 @@ def report_button_text(team: str) -> str:
 
 
 def report_chat_for(team: str) -> str:
-    """Chat a report goes to. LiveSlots can have its own; otherwise the default."""
+    """Chat a report goes to.
+
+    LiveSlots can have its own group; DB and Platform (SRE) reports go to the
+    OSE & SRE group. Anything left falls back to REPORT_CHAT_ID / the alert chat.
+    """
     if team == "liveslot" and CONFIG.report_chat_id_liveslot:
         return CONFIG.report_chat_id_liveslot
+    if team in OSE_REPORT_TEAMS and CONFIG.report_chat_id_ose:
+        return CONFIG.report_chat_id_ose
     return CONFIG.report_chat_id or CONFIG.lark_alert_chat_id
 
 
