@@ -33,6 +33,25 @@ def _int(name: str, default: int) -> int:
         return default
 
 
+def _domain_names(name: str, default: str) -> dict[str, list[str]]:
+    """Parse ``"DOMAIN=Name,Name2; DOMAIN2=Name3"`` into {DOMAIN: [names]}.
+
+    Used for DUTY_EXTRA_TAGS. Values are either a name known to the open_id map
+    (/secret1) or a raw ``ou_…`` open_id. Domains are upper-cased so they match
+    however the dashboard spells them ("Network").
+    """
+    out: dict[str, list[str]] = {}
+    for chunk in os.getenv(name, default).split(";"):
+        entry = chunk.split("#", 1)[0].strip()
+        if not entry or "=" not in entry:
+            continue
+        domain, _, people = entry.partition("=")
+        names = [tok for p in people.split(",") if (tok := p.strip())]
+        if domain.strip() and names:
+            out.setdefault(domain.strip().upper(), []).extend(names)
+    return out
+
+
 def _int_list(name: str, default: str, min_value: int = 1) -> list[int]:
     """Parse a comma-separated list of ints (e.g. '15,30,60'), tolerating inline
     '# comments' and whitespace. Values below min_value are dropped.
@@ -164,6 +183,14 @@ class Config:
             for s in os.getenv("DUTY_EXCLUDE", "").split(",")
             if (tok := s.split("#", 1)[0].strip())
         ]
+    )
+    # People tagged on top of the duty roster, per alert Domain. Network alerts
+    # have no roster of their own (they fall back to the SRE duty), so the
+    # network owner is tagged alongside whoever is on duty.
+    # Format: "DOMAIN=Name[,Name2]; DOMAIN2=Name3" — each entry is a name known
+    # to the open_id map (/secret1) or a raw ou_… open_id.
+    duty_extra_tags: dict[str, list[str]] = field(
+        default_factory=lambda: _domain_names("DUTY_EXTRA_TAGS", "NETWORK=Marcos")
     )
     # name -> open_id map collected via /secret1, used to @-tag the duty person.
     duty_openid_file: Path = field(

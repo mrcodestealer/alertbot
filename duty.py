@@ -93,6 +93,15 @@ def team_for_domain(domain: str | None) -> str:
     return DOMAIN_TEAM.get((domain or "").strip().upper(), DEFAULT_TEAM)
 
 
+def extra_tags_for_domain(domain: str | None) -> list[str]:
+    """People tagged on top of the duty roster for this Domain (DUTY_EXTRA_TAGS).
+
+    Network alerts have no roster of their own — they fall back to the SRE duty
+    — so the network owner is tagged with whoever is on duty.
+    """
+    return list(CONFIG.duty_extra_tags.get((domain or "").strip().upper(), []))
+
+
 def report_button_text(team: str) -> str:
     """Label for the report button, so it names the group it will post to."""
     if team == "liveslot":
@@ -191,7 +200,41 @@ def get_duty(domain: str | None = None, content: str = "") -> dict[str, Any]:
     ``content`` is the alert's text (rule/instance/description); a keyword in it
     can override the Domain — e.g. a LiveSlots node alert pages LiveSlot duty
     even though its Domain is PLATFORM.
+
+    Anyone configured for the Domain in DUTY_EXTRA_TAGS (Network → the network
+    owner) is appended to ``names``, including when the roster lookup failed —
+    a broken sheet read shouldn't drop the one person who is always tagged.
     """
+    result = _roster_duty(domain, content)
+    extras = [n for n in extra_tags_for_domain(domain) if not is_excluded(n)]
+    if extras:
+        mapping = load_openids()
+        # Match on the open_id as well as the name: someone already on today's
+        # roster must not be tagged twice under a different spelling.
+        seen = {_norm(n) for n in result["names"]}
+        seen |= {oid for n in result["names"] if (oid := resolve_openid(n, mapping))}
+        added: list[str] = []
+        for n in extras:
+            oid = resolve_openid(n, mapping)
+            if _norm(n) in seen or (oid and oid in seen):
+                continue
+            seen.update({_norm(n)} | ({oid} if oid else set()))
+            added.append(n)
+        result["names"] = list(result["names"]) + added
+        result["extra"] = added
+        unresolved = [n for n in added if not resolve_openid(n, mapping)]
+        if unresolved:
+            log.warning(
+                "DUTY_EXTRA_TAGS: no open_id for %s (domain=%r) — they will show as "
+                "plain text, not an @-mention. Run /secret1 @them, or put the raw "
+                "ou_… id in DUTY_EXTRA_TAGS.",
+                ", ".join(unresolved), domain,
+            )
+    return result
+
+
+def _roster_duty(domain: str | None, content: str) -> dict[str, Any]:
+    """Today's duty from the rosters, before DUTY_EXTRA_TAGS are added."""
     team = team_for_alert(domain, content)
     result: dict[str, Any] = {
         "team": team,
@@ -315,6 +358,8 @@ def resolve_openid(name: str, mapping: dict[str, str] | None = None) -> str | No
     stores Lark display names ("KaiXuan Ng"), so fall back to a containment
     match. Requires >=4 chars to avoid short-name collisions.
     """
+    if (name or "").strip().startswith("ou_"):
+        return name.strip()  # already an open_id (DUTY_EXTRA_TAGS accepts them)
     mapping = load_openids() if mapping is None else mapping
     target = _norm(name)
     if not target:
