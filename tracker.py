@@ -213,6 +213,7 @@ class AlertsTracker:
         duty_open_ids: list[str] | None = None,
         screenshot_path: str | None = None,
         when: datetime | None = None,
+        has_runbook: bool | None = None,
     ) -> str | None:
         """Add one alert to this month's table. Returns the record id, or None
         if the alert's domain isn't tracked."""
@@ -235,6 +236,9 @@ class AlertsTracker:
         received = _epoch_ms(alert.get("created_at"))
         if received:
             fields["Alert Received Date & Time"] = received
+        if has_runbook is not None:
+            # Ticked only when the SOP doc actually covers this alert.
+            fields["Has Runbook?"] = bool(has_runbook)
         sev = self._option(table_id, "Severity", alert.get("severity") or "")
         if sev:
             fields["Severity"] = sev

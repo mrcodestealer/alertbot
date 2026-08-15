@@ -167,11 +167,20 @@ class CommandHandler:
                 oid for oid in (duty_mod.resolve_openid(n, mapping) for n in duty_info.get("names") or [])
                 if oid
             ]
+            # Tick "Has Runbook?" when the SOP doc covers this alert.
+            has_runbook = None
+            if self.kb is not None:
+                try:
+                    has_runbook = bool(self.kb.lookup(alert).get("in_docs"))
+                except Exception:
+                    log.exception("Tracker: SOP lookup failed for #%s", alert_id)
+
             shot = CONFIG.screenshot_dir / f"alert_{alert_id}.png"
             rid = AlertsTracker().add_alert(
                 alert,
                 duty_open_ids=open_ids,
                 screenshot_path=str(shot) if shot.exists() else None,
+                has_runbook=has_runbook,
             )
             if rid:
                 log.info("Tracker: filed #%s as record %s", alert_id, rid)
