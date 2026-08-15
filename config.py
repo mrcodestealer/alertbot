@@ -206,6 +206,9 @@ class Config:
     tracker_table_id: str = os.getenv("TRACKER_TABLE_ID", "tblg3xYBy31GyTlT")
     # Table whose columns are copied when a new month's table has to be created.
     tracker_template_table: str = os.getenv("TRACKER_TEMPLATE_TABLE", "tblg3xYBy31GyTlT")
+    # "Alerts Record" table: a row is added the first time an alert with no
+    # runbook is reported, so someone can write the SOP for it.
+    alerts_record_table_id: str = os.getenv("ALERTS_RECORD_TABLE_ID", "tbljBczFQEW5eDH1")
 
     # --- Knowledge base (SOP doc -> monitorflow.json) ---
     kb_enabled: bool = _bool("KB_ENABLED", True)

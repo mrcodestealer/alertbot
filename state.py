@@ -53,6 +53,9 @@ class State:
         # alert id -> the "Report to SRE" message, so the bot can reply to it
         # when that alert recovers.
         self.reports: dict[str, dict[str, Any]] = {}
+        # Alert names already filed in "Alerts Record" — one row per name, not
+        # per occurrence (PodPVCSpaceUsage90 alone fires hundreds of times).
+        self.runbook_requested: list[str] = []
         self._load()
 
     # --------------------------------------------------------------- persist
@@ -68,6 +71,7 @@ class State:
             self.flaps = data.get("flaps", {}) or {}
             self.seen_rules = data.get("seen_rules", {}) or {}
             self.reports = data.get("reports", {}) or {}
+            self.runbook_requested = data.get("runbook_requested", []) or []
             log.info("Loaded state: last_id=%s, watched=%d", self.last_id, len(self.watched))
         except Exception:  # pragma: no cover - defensive
             log.exception("Failed to load state file; starting fresh")
@@ -77,7 +81,8 @@ class State:
             tmp = self._path.with_suffix(".tmp")
             payload = {"last_id": self.last_id, "seeded": self.seeded,
                        "watched": self.watched, "flaps": self.flaps,
-                       "seen_rules": self.seen_rules, "reports": self.reports}
+                       "seen_rules": self.seen_rules, "reports": self.reports,
+                       "runbook_requested": self.runbook_requested}
             tmp.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
             tmp.replace(self._path)
 
@@ -192,6 +197,17 @@ class State:
         with self._lock:
             for k in [k for k, v in self.reports.items() if (v.get("at") or 0) < cutoff]:
                 del self.reports[k]
+
+    def needs_runbook_row(self, rule: str) -> bool:
+        """True the first time this alert NAME is reported without a runbook."""
+        key = " ".join((rule or "").split()).lower()
+        if not key:
+            return False
+        with self._lock:
+            if key in self.runbook_requested:
+                return False
+            self.runbook_requested.append(key)
+            return True
 
     def record_rules(self, alerts: list[dict[str, Any]], now: float | None = None) -> int:
         """Remember every alert NAME we've seen, with how often and when.

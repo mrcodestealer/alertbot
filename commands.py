@@ -136,7 +136,7 @@ class CommandHandler:
             if self.state is not None:
                 self.state.set_report(alert_id, msg_id, duty_mention, rule)
                 self.state.save()
-            self._file_in_tracker(alert_id, domain, rule, info, detail)
+            self._file_in_tracker(alert_id, domain, rule, info, detail, reporter)
         else:
             log.error(
                 "FAILED to post report card for #%s to chat %s — is the bot a member of that chat?",
@@ -144,7 +144,7 @@ class CommandHandler:
             )
 
     def _file_in_tracker(self, alert_id: str, domain: str, rule: str, duty_info: dict,
-                         detail: dict | None = None) -> None:
+                         detail: dict | None = None, reporter: str | None = None) -> None:
         """Also file the reported alert in the Lark Base alerts tracker.
 
         Best-effort: the report card has already been posted, so a tracker
@@ -184,6 +184,19 @@ class CommandHandler:
             )
             if rid:
                 log.info("Tracker: filed #%s as record %s", alert_id, rid)
+
+            # No runbook -> ask for one, once per alert NAME.
+            if has_runbook is False and self.state is not None:
+                name = alert.get("alert_rule") or rule
+                if self.state.needs_runbook_row(name):
+                    rec_id = AlertsTracker().add_alerts_record(
+                        reporter_open_id=reporter,
+                        screenshot_path=str(shot) if shot.exists() else None,
+                    )
+                    log.info("Tracker: Alerts Record row %s for undocumented %r", rec_id, name)
+                    self.state.save()
+                else:
+                    log.info("Tracker: %r already has an Alerts Record row — skipping", name)
         except Exception:
             log.exception("Tracker: failed to file #%s (report card was still sent)", alert_id)
 

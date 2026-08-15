@@ -178,6 +178,45 @@ class AlertsTracker:
                         out.setdefault(name.strip(), uid)
         return out
 
+    def add_alerts_record(
+        self,
+        *,
+        reporter_open_id: str | None = None,
+        screenshot_path: str | None = None,
+        when: datetime | None = None,
+    ) -> str | None:
+        """Add a row to the 'Alerts Record' table for an alert with no runbook.
+
+        Agreed field usage: Person left blank, Record Person = whoever reported
+        it (the OSE on duty), Status = Pending, Has Alerts? = Yes,
+        Implementation left blank for a human to write up.
+        """
+        table = CONFIG.alerts_record_table_id
+        if not table:
+            return None
+        when = when or datetime.now(timezone.utc)
+        fields: dict[str, Any] = {
+            "Date": int(when.timestamp() * 1000),
+            "Status": "Pending",
+            "Has Alerts?": "Yes",
+        }
+        if reporter_open_id:
+            fields["Record Person"] = [{"id": reporter_open_id}]
+        if screenshot_path and os.path.exists(screenshot_path):
+            tokenn = self.upload_image(screenshot_path)
+            if tokenn:
+                # The only thing identifying the alert, since Implementation is
+                # left for a human to fill in.
+                fields["Attachment"] = [{"file_token": tokenn}]
+
+        data = self._api(
+            "POST", f"/bitable/v1/apps/{CONFIG.tracker_app_token}/tables/{table}/records",
+            json={"fields": fields},
+        )
+        rid = (data.get("record") or {}).get("record_id")
+        log.info("Tracker: added Alerts Record row %s (no runbook)", rid)
+        return rid
+
     # ----------------------------------------------------------------- media
     def upload_image(self, path: str) -> str | None:
         """Upload a screenshot for the Image Attachment field."""
