@@ -16,6 +16,7 @@ import time
 from datetime import datetime, timezone
 
 import cards
+import health_report
 from config import CONFIG
 from lark_client import LarkClient
 from monitor_client import MonitorClient
@@ -49,6 +50,10 @@ class Watcher(threading.Thread):
         self._stop = threading.Event()
         # Run the first deep catalogue scan shortly after startup.
         self._last_catalogue = 0.0
+        # Epoch of the last tick that finished without raising (health report).
+        self.last_ok = 0.0
+        # Epochs of the last screenshot capture that worked / failed (health report).
+        self.last_shot_ok = self.last_shot_fail = 0.0
 
     def stop(self) -> None:
         self._stop.set()
@@ -63,6 +68,7 @@ class Watcher(threading.Thread):
         while not self._stop.is_set():
             try:
                 self._tick()
+                self.last_ok = time.time()
             except Exception:
                 log.exception("Watcher tick failed")
             self._stop.wait(CONFIG.poll_interval_seconds)
@@ -100,6 +106,7 @@ class Watcher(threading.Thread):
         for alert in new_alerts:
             delivered, msg_id, image_key = self._announce_new(alert)
             if delivered:
+                health_report.bump("New alerts posted")
                 self.state.track(alert, announced=True)
                 if msg_id:
                     self.state.set_firing_message_id(alert["id"], msg_id)
@@ -168,7 +175,10 @@ class Watcher(threading.Thread):
             image_key = None
             shot = capture_alert_detail(aid)
             if shot:
+                self.last_shot_ok = time.time()
                 image_key = self.lark.upload_image(shot)
+            elif CONFIG.enable_screenshot:  # None while enabled = the capture failed
+                self.last_shot_fail = time.time()
             card = cards.new_alert_card(
                 alert, image_key=image_key, kb_verdict=verdict,
                 button_text=self._button_text(alert),
@@ -287,6 +297,7 @@ class Watcher(threading.Thread):
             self.state.track(detail, announced=True)
             return
         log.info("Alert #%s resolved", alert_id)
+        health_report.bump("Alerts resolved")
         firing_msg_id = self.state.get_firing_message_id(alert_id)
         posted_ids = self.state.get_message_ids(alert_id)
         self.state.mark_resolved(alert_id, detail)

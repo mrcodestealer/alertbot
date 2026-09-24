@@ -13,6 +13,10 @@ monitorflow.tmp
 monitorflow.lock
 duty_openids.json
 duty_openids.tmp
+# Daily health report (health_report.py): last-sent slot + single-sender lock
+.health_report_state.json
+.health_report_state.json.tmp
+.health_report_state.lock
 
 # Python
 __pycache__/

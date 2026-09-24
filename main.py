@@ -23,6 +23,7 @@ from lark_oapi.event.callback.model.p2_card_action_trigger import (
     P2CardActionTriggerResponse,
 )
 
+import health_report
 from commands import CommandHandler
 from config import CONFIG
 from knowledge import KnowledgeBase, KnowledgeBuilder
@@ -77,6 +78,8 @@ def _extract_text(content: str) -> str:
 
 
 def on_message(data: P2ImMessageReceiveV1) -> None:
+    health_report.bump("Lark events")
+    health_report.mark("Last Lark event")
     try:
         msg = data.event.message
         if msg.message_type != "text":
@@ -150,6 +153,8 @@ def on_card_action(data: P2CardActionTrigger) -> P2CardActionTriggerResponse:
     Card callbacks must answer fast, so the work is handed to the thread pool and
     we return a toast immediately.
     """
+    health_report.bump("Lark events")
+    health_report.mark("Last Lark event")
     try:
         action = data.event.action
         value = (getattr(action, "value", None) or {}) if action else {}
@@ -287,7 +292,8 @@ def main() -> int:
         except Exception:
             log.exception("Could not sync duty open_ids from the tracker")
 
-    Watcher(monitor, lark_client, state, knowledge).start()
+    watcher = Watcher(monitor, lark_client, state, knowledge)
+    watcher.start()
 
     # Knowledge base: hourly sync of the SOP wiki doc -> monitorflow.json.
     global refresher
@@ -298,6 +304,24 @@ def main() -> int:
         else:
             log.warning("KB_ENABLED=true but KB_WIKI_TOKEN is unset — SOP lookups disabled")
     log.info("Knowledge base: %d entry(ies) loaded", len(knowledge.entries) if knowledge else 0)
+
+    # Daily health report card to the alert group (health_report.py, own daemon
+    # thread; read-only checks in health_checks.py). Must never stop the boot.
+    try:
+        import health_checks
+
+        health_report.start(
+            "AlertBot",
+            # Not LarkClient.send_card: that hides the Lark error code and sends no
+            # uuid, so a retry after lark-oapi's 30 s timeout could post a 2nd card.
+            send_card=health_report.make_lark_sender(
+                CONFIG.lark_app_id, CONFIG.lark_app_secret, CONFIG.lark_domain
+            ),
+            checks=health_checks.build(watcher, state, knowledge, refresher),
+            expect_threads=["alert-watcher"] + (["kb-refresher"] if refresher is not None else []),
+        )
+    except Exception:
+        log.exception("Could not start the daily health report")
 
     # Register no-op handlers for events Lark delivers but we don't act on, so
     # lark-oapi stops logging "processor not found" ERRORs for them.
